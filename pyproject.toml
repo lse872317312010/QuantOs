@@ -11,6 +11,9 @@ dependencies = [
   "binance-sdk-spot",
 ]
 
+[project.scripts]
+bstocks-scan = "bstocks_alpha.cli:main"
+
 [project.optional-dependencies]
 engine = [
   "nautilus_trader>=1,<2",
