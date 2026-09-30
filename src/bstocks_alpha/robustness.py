@@ -88,6 +88,18 @@ def threshold_stability_report(
                 "market_session": session,
                 "preferred_side": side,
                 "threshold_bps": float(threshold),
+                "train_market_dates": 0,
+                "train_matched_trades": 0,
+                "train_mean_daily_net_bps": None,
+                "train_median_daily_net_bps": None,
+                "train_positive_day_rate": None,
+                "train_p_value": None,
+                "train_fdr_q_value": None,
+                "test_market_dates": 0,
+                "test_matched_trades": 0,
+                "test_mean_daily_net_bps": None,
+                "test_median_daily_net_bps": None,
+                "test_positive_day_rate": None,
             },
         )
         summary.update(
