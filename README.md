@@ -14,48 +14,28 @@ Use mature upstreams for infrastructure:
 
 Our code should concentrate on **features, hypotheses, validation, and strategy logic**.
 
-## Current milestone: live bStocks basis scanner
+## Current milestone: live bStocks basis dataset
 
-The repository has an end-to-end public-data pipeline:
+Two collection modes now exist.
 
-1. Query Binance Spot exchange metadata.
-2. Find trading USDT symbols following the bStocks B-suffix naming convention.
-3. Confirm each candidate through Binance reference-price calculation type = EXTERNAL.
-4. Pull best bid/ask through Binance official SDK.
-5. Pull Binance official reference price.
-6. Compute midpoint/reference basis, spread, reference lag and bid/ask-side convergence edge.
-7. Rank gross executable convergence edges and append snapshots to a local CSV research dataset.
+One-shot REST scan:
 
-No static bStocks symbol list is required.
-
-## Quick start
-
-Python 3.12+ is recommended.
-
-    python -m venv .venv
-    source .venv/bin/activate
-    pip install -e '.[dev]'
-    pytest
     bstocks-scan --threshold-bps 10
 
-By default snapshots append to:
+Continuous official WebSocket collection:
 
-    data/basis_snapshots.csv
+    bstocks-stream --symbols SPYBUSDT,NVDABUSDT --duration-seconds 600
 
-To inspect without writing:
+The WebSocket collector:
 
-    bstocks-scan --no-write
+1. dynamically discovers current USDT bStocks;
+2. confirms candidates through Binance reference-price calculation type = EXTERNAL;
+3. subscribes through Binance official SDK to bookTicker and referencePrice;
+4. samples paired best bid/ask and reference state;
+5. records basis, executable convergence edge, reference lag and stream event age;
+6. appends research observations to data/stream_basis.csv.
 
-The displayed gross edge is before fees, slippage, latency and borrow constraints. SHORT is a
-research-side calculation until actual borrow/margin availability is verified.
-
-## Codespaces
-
-The repo includes a devcontainer. In GitHub:
-
-    Code -> Codespaces -> Create codespace on main
-
-Dependencies install automatically.
+No custom WebSocket client is implemented.
 
 ## Research definition
 
@@ -69,10 +49,35 @@ Gross convergence edges:
     long_edge = reference_price / ask - 1
     short_edge = bid / reference_price - 1
 
-This is still not a trading signal. It must survive fees, latency, market-session effects,
-borrow constraints and out-of-sample validation.
+These are research measurements, not trading signals. Gross edge is before fees, slippage,
+latency and borrow constraints. SHORT remains theoretical until actual margin/borrow availability
+is verified.
 
-See docs/research/001-reference-basis.md.
+See:
+
+- docs/research/001-reference-basis.md
+- docs/research/002-websocket-collection.md
+
+## Quick start
+
+Python 3.12+ is recommended.
+
+    python -m venv .venv
+    source .venv/bin/activate
+    pip install -e '.[dev]'
+    pytest
+    bstocks-scan --no-write
+    bstocks-stream --symbols SPYBUSDT,NVDABUSDT --duration-seconds 60
+
+Research data is written below data/ and ignored by Git.
+
+## Codespaces
+
+The repo includes a devcontainer. In GitHub:
+
+    Code -> Codespaces -> Create codespace on main
+
+Dependencies install automatically.
 
 ## Layout
 

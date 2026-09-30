@@ -1,9 +1,11 @@
+import pytest
+
 from bstocks_alpha.dataset import append_snapshot_csv
 from bstocks_alpha.snapshot import BasisObservation
 
 
-def test_append_snapshot_csv(tmp_path) -> None:
-    observation = BasisObservation(
+def observation() -> BasisObservation:
+    return BasisObservation(
         observed_at_utc="2026-09-30T00:00:00+00:00",
         observed_timestamp_ms=200,
         symbol="SPYBUSDT",
@@ -22,9 +24,19 @@ def test_append_snapshot_csv(tmp_path) -> None:
         gross_convergence_edge_bps=0.0,
         external_calculation_id=2,
     )
+
+
+def test_append_snapshot_csv(tmp_path) -> None:
     target = tmp_path / "basis.csv"
-    assert append_snapshot_csv([observation], target) == 1
-    assert append_snapshot_csv([observation], target) == 1
+    assert append_snapshot_csv([observation()], target) == 1
+    assert append_snapshot_csv([observation()], target) == 1
     lines = target.read_text().splitlines()
     assert len(lines) == 3
     assert lines[0].startswith("observed_at_utc,observed_timestamp_ms,symbol")
+
+
+def test_append_snapshot_csv_rejects_schema_mismatch(tmp_path) -> None:
+    target = tmp_path / "basis.csv"
+    target.write_text("old,header\n1,2\n")
+    with pytest.raises(ValueError, match="schema mismatch"):
+        append_snapshot_csv([observation()], target)

@@ -33,6 +33,9 @@ class BasisObservation:
     short_convergence_bps: float
     gross_convergence_edge_bps: float
     external_calculation_id: int | None
+    book_age_ms: int = 0
+    reference_receive_age_ms: int = 0
+    book_update_id: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,6 +57,9 @@ def _observation(
     *,
     observed_at_utc: str,
     observed_timestamp_ms: int,
+    book_age_ms: int = 0,
+    reference_receive_age_ms: int = 0,
+    book_update_id: int | None = None,
 ) -> BasisObservation:
     bid = float(ticker["bidPrice"])
     ask = float(ticker["askPrice"])
@@ -88,6 +94,9 @@ def _observation(
         short_convergence_bps=short_convergence_bps,
         gross_convergence_edge_bps=max(long_convergence_bps, short_convergence_bps),
         external_calculation_id=instrument.external_calculation_id,
+        book_age_ms=book_age_ms,
+        reference_receive_age_ms=reference_receive_age_ms,
+        book_update_id=book_update_id,
     )
 
 
