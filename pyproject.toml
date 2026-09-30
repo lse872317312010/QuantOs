@@ -14,6 +14,7 @@ dependencies = [
 [project.scripts]
 bstocks-scan = "bstocks_alpha.cli:main"
 bstocks-stream = "bstocks_alpha.streaming:main"
+bstocks-analyze = "bstocks_alpha.research:main"
 
 [project.optional-dependencies]
 engine = [
@@ -21,7 +22,8 @@ engine = [
 ]
 research = [
   "duckdb>=1.0",
-  "polars>=1.0",
+  "exchange_calendars>=4.13,<5",
+  "polars>=1.44,<2",
   "pyarrow>=15",
   "vectorbt>=0.28",
   "skfolio>=0.12",
