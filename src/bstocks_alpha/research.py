@@ -467,7 +467,11 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--bootstrap-confidence", type=float, default=0.95)
     parser.add_argument("--bootstrap-min-dates", type=int, default=5)
     parser.add_argument("--bootstrap-seed", type=int, default=8_723)
-    parser.add_argument("--thresholds-bps", type=_parse_thresholds, default=(5.0, 10.0, 15.0, 25.0, 50.0))
+    parser.add_argument(
+        "--thresholds-bps",
+        type=_parse_thresholds,
+        default=(5.0, 10.0, 15.0, 25.0, 50.0),
+    )
     parser.add_argument("--threshold-min-train-dates", type=int, default=5)
     parser.add_argument("--fdr-alpha", type=float, default=0.05)
     return parser
