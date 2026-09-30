@@ -1,0 +1,38 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "bstocks-alpha-lab"
+version = "0.1.0"
+description = "Upstream-first research lab for Binance bStocks alpha"
+requires-python = ">=3.12"
+dependencies = [
+  "binance-sdk-spot",
+]
+
+[project.optional-dependencies]
+engine = [
+  "nautilus_trader>=1,<2",
+]
+research = [
+  "duckdb>=1.0",
+  "polars>=1.0",
+  "pyarrow>=15",
+  "vectorbt>=0.28",
+  "skfolio>=0.12",
+]
+dev = [
+  "pytest>=8",
+  "ruff>=0.6",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/bstocks_alpha"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
