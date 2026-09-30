@@ -6,47 +6,73 @@ Research-first repository for Binance bStocks / tokenized-equity alpha. This rep
 
 Use mature upstreams for infrastructure:
 
-- Binance official Spot SDK (`binance-sdk-spot`) for Spot REST/WebSocket/streams, including bStocks reference-price endpoints.
+- Binance official Spot SDK (binance-sdk-spot) for Spot REST/WebSocket/streams, including bStocks reference-price endpoints.
 - NautilusTrader for event-driven backtest/live execution when we graduate a strategy to execution.
-- Hummingbot executors as reusable execution-pattern references (TWAP/grid/DCA/arbitrage) when useful.
+- Hummingbot executors as reusable execution-pattern references when useful.
 - MINA-BINANCE-AGENTOS as a bStocks-specific idea/risk reference, not as the production core.
 - VectorBT/skfolio/Polars/DuckDB for research and portfolio analysis as needed.
 
 Our code should concentrate on **features, hypotheses, validation, and strategy logic**.
 
-## First research primitive
+## Current milestone: live bStocks basis scanner
 
-Reference-price basis:
+The repository now has a first end-to-end public-data pipeline:
 
-```text
-basis = token_price / reference_price - 1
-```
+1. Query Binance Spot exchange metadata.
+2. Find trading USDT symbols following the bStocks B-suffix naming convention.
+3. Confirm each candidate through Binance reference-price calculation type = EXTERNAL.
+4. Pull best bid/ask through Binance's official SDK.
+5. Pull Binance official reference price.
+6. Compute midpoint/reference basis and spread in basis points.
+7. Rank anomalies and append snapshots to a local CSV research dataset.
 
-This is intentionally tiny: the goal is to validate whether the market contains repeatable edge before adding complexity.
+No static bStocks symbol list is required.
 
 ## Quick start
 
 Python 3.12+ is recommended.
 
-```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -e '.[dev]'
-pytest
-python examples/binance_reference_price.py SPYBUSDT
-```
+    python -m venv .venv
+    source .venv/bin/activate
+    pip install -e '.[dev]'
+    pytest
+    bstocks-scan --threshold-bps 25
 
-For NautilusTrader production work, keep the engine as an optional dependency and follow its stable-version guidance. Do not silently move real-capital execution to a pre-release engine.
+By default snapshots append to:
+
+    data/basis_snapshots.csv
+
+To inspect without writing:
+
+    bstocks-scan --no-write
+
+## Codespaces
+
+The repo includes a devcontainer. In GitHub:
+
+    Code -> Codespaces -> Create codespace on main
+
+Dependencies install automatically.
+
+## Research definition
+
+Reference-price basis:
+
+    mid = (best_bid + best_ask) / 2
+    basis = mid / reference_price - 1
+
+This raw basis is not a trading signal by itself. It must survive spread, fees, latency,
+underlying-market session effects and out-of-sample validation.
+
+See docs/research/001-reference-basis.md.
 
 ## Layout
 
-```text
-src/bstocks_alpha/       thin Binance access + our alpha features
-examples/                executable public-data smoke tests
-config/                  research market configuration only
-docs/decisions/          architecture decision records
-tests/                   feature and policy tests
-```
+    src/bstocks_alpha/       thin Binance access + alpha features
+    config/                  research market configuration only
+    docs/decisions/          architecture decision records
+    docs/research/           explicit research hypotheses and validation plans
+    tests/                   unit/policy tests
 
 ## Non-goals
 
@@ -65,4 +91,4 @@ If an upstream lacks one bStocks-specific field, add the thinnest possible adapt
 
 ## Upstreams
 
-See `UPSTREAMS.md` and `docs/decisions/0001-upstream-first.md`.
+See UPSTREAMS.md and docs/decisions/0001-upstream-first.md.
