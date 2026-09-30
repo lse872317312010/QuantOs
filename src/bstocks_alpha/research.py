@@ -340,11 +340,13 @@ def analyze_file(
     max_event_age_ms: int | None = 5_000,
     max_reference_lag_ms: int | None = None,
     max_match_lag_ms: int = 2_000,
-    cost_model: CostModel = CostModel(),
+    cost_model: CostModel | None = None,
     test_fraction: float = 0.30,
 ) -> pl.DataFrame:
     """Run the full offline research pass and persist enriched datasets."""
     source = Path(input_path)
+    if cost_model is None:
+        cost_model = CostModel()
     if not source.exists():
         raise FileNotFoundError(source)
 
