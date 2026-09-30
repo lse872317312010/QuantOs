@@ -6,57 +6,59 @@ Research-first repository for Binance bStocks / tokenized-equity alpha. This rep
 
 Use mature upstreams for infrastructure:
 
-- Binance official Spot SDK (binance-sdk-spot) for Spot REST/WebSocket/streams, including bStocks reference-price endpoints.
-- NautilusTrader for event-driven backtest/live execution when we graduate a strategy to execution.
+- Binance official Spot SDK for Spot REST/WebSocket/streams and bStocks reference-price endpoints.
+- exchange_calendars / XNYS for US-equity holidays and actual regular-session boundaries.
+- NautilusTrader for event-driven backtest/live execution when a strategy graduates to execution.
 - Hummingbot executors as reusable execution-pattern references when useful.
-- MINA-BINANCE-AGENTOS as a bStocks-specific idea/risk reference, not as the production core.
 - VectorBT/skfolio/Polars/DuckDB for research and portfolio analysis as needed.
 
-Our code should concentrate on **features, hypotheses, validation, and strategy logic**.
+Our code concentrates on features, hypotheses, validation and strategy logic.
 
-## Current milestone: live bStocks basis dataset
+## Current research pipeline
 
-Two collection modes now exist.
-
-One-shot REST scan:
+### 1. One-shot market scan
 
     bstocks-scan --threshold-bps 10
 
-Continuous official WebSocket collection:
+### 2. Continuous official WebSocket collection
 
     bstocks-stream --symbols SPYBUSDT,NVDABUSDT --duration-seconds 600
 
-The WebSocket collector:
+The collector dynamically discovers current USDT bStocks, subscribes through Binance official SDK
+to bookTicker and referencePrice, pairs the latest states and records basis, executable convergence
+edge and timing freshness.
 
-1. dynamically discovers current USDT bStocks;
-2. confirms candidates through Binance reference-price calculation type = EXTERNAL;
-3. subscribes through Binance official SDK to bookTicker and referencePrice;
-4. samples paired best bid/ask and reference state;
-5. records basis, executable convergence edge, reference lag and stream event age;
-6. appends research observations to data/stream_basis.csv.
+### 3. Forward-outcome research
 
-No custom WebSocket client is implemented.
+Install research dependencies and analyze collected observations:
 
-## Research definition
+    pip install -e '.[research]'
+    bstocks-analyze --input data/stream_basis.csv
 
-Reference-price basis:
+Default horizons are 1s, 5s, 30s and 5m. The analysis:
 
-    mid = (best_bid + best_ask) / 2
-    basis = mid / reference_price - 1
+1. rejects stale local stream state by configurable event age;
+2. labels PRE / REGULAR / AFTER / CLOSED using XNYS sessions;
+3. forward-matches the first same-symbol observation near each requested horizon;
+4. calculates executable entry-to-exit returns using ask-to-future-bid for LONG and
+   bid-to-future-ask for SHORT;
+5. measures absolute basis convergence;
+6. summarizes results by horizon, market session, freshness, edge bucket and side.
 
-Gross convergence edges:
+Outputs:
 
-    long_edge = reference_price / ask - 1
-    short_edge = bid / reference_price - 1
+    data/research/signals.parquet
+    data/research/forward_outcomes.parquet
+    data/research/forward_summary.csv
 
-These are research measurements, not trading signals. Gross edge is before fees, slippage,
-latency and borrow constraints. SHORT remains theoretical until actual margin/borrow availability
-is verified.
+These are research measurements, not trading signals. Gross edge and forward returns remain before
+fees, slippage, financing and verified short-borrow availability.
 
 See:
 
 - docs/research/001-reference-basis.md
 - docs/research/002-websocket-collection.md
+- docs/research/003-forward-outcomes.md
 
 ## Quick start
 
@@ -64,10 +66,11 @@ Python 3.12+ is recommended.
 
     python -m venv .venv
     source .venv/bin/activate
-    pip install -e '.[dev]'
+    pip install -e '.[dev,research]'
     pytest
     bstocks-scan --no-write
     bstocks-stream --symbols SPYBUSDT,NVDABUSDT --duration-seconds 60
+    bstocks-analyze --input data/stream_basis.csv
 
 Research data is written below data/ and ignored by Git.
 
@@ -81,7 +84,7 @@ Dependencies install automatically.
 
 ## Layout
 
-    src/bstocks_alpha/       thin Binance access + alpha features
+    src/bstocks_alpha/       thin Binance access + alpha/research features
     config/                  research market configuration only
     docs/decisions/          architecture decision records
     docs/research/           explicit research hypotheses and validation plans

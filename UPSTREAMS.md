@@ -5,6 +5,7 @@
 | Binance Spot REST / WebSocket | `binance/binance-connector-python` / `binance-sdk-spot` | Direct use |
 | bStocks reference price | Binance Spot official API/SDK | Direct use |
 | Binance market rules / exchangeInfo | Binance Spot official API/SDK | Direct use |
+| US-equity trading calendar | `exchange_calendars` / XNYS | Direct use; holidays and actual session close |
 | Event-driven backtest/live | NautilusTrader | Direct use; no fork by default |
 | Execution patterns | Hummingbot | Reuse/reference; separate service if needed |
 | bStocks-specific strategy ideas | MINA-BINANCE-AGENTOS | Study/reuse ideas; do not use as production core without independent validation |
