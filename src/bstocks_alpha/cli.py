@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 
 from .dataset import append_snapshot_csv
-from .scanner import rank_anomalies, summarize
+from .scanner import preferred_convergence_side, rank_executable_edges, summarize
 from .snapshot import collect_basis_snapshot
 from .universe import discover_bstocks
 
@@ -13,7 +13,7 @@ from .universe import discover_bstocks
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Scan Binance bStocks reference-price basis")
     parser.add_argument("--quote", default="USDT")
-    parser.add_argument("--threshold-bps", type=float, default=25.0)
+    parser.add_argument("--threshold-bps", type=float, default=0.0)
     parser.add_argument("--csv", default="data/basis_snapshots.csv")
     parser.add_argument("--no-write", action="store_true")
     return parser
@@ -33,16 +33,19 @@ def main() -> None:
     print(
         f"bStocks={len(instruments)} observations={summary.count} "
         f"mean_basis={summary.mean_basis_bps:.2f}bps "
-        f"max_abs={summary.max_abs_basis_bps:.2f}bps "
-        f"mean_spread={summary.mean_spread_bps:.2f}bps"
+        f"max_abs_basis={summary.max_abs_basis_bps:.2f}bps "
+        f"mean_spread={summary.mean_spread_bps:.2f}bps "
+        f"max_gross_edge={summary.max_gross_convergence_edge_bps:.2f}bps"
     )
 
-    anomalies = rank_anomalies(observations, threshold_bps=args.threshold_bps)
-    print("symbol         basis_bps  spread_bps  mid          reference")
-    for item in anomalies:
+    opportunities = rank_executable_edges(observations, threshold_bps=args.threshold_bps)
+    print("symbol         side   gross_edge  basis_bps  spread_bps  ref_lag_ms")
+    for item in opportunities:
         print(
-            f"{item.symbol:<14} {item.basis_bps:>9.2f}  {item.spread_bps:>10.2f}  "
-            f"{item.mid:>11.4f}  {item.reference_price:>11.4f}"
+            f"{item.symbol:<14} {preferred_convergence_side(item):<5} "
+            f"{item.gross_convergence_edge_bps:>10.2f} "
+            f"{item.basis_bps:>10.2f} {item.spread_bps:>10.2f} "
+            f"{item.reference_lag_ms:>10d}"
         )
 
     if batch.failures:
