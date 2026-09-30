@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from binance_common.errors import Error as BinanceError
 from binance_sdk_spot.spot import Spot
 
 from .binance_market import exchange_info, reference_price_calculation
@@ -21,7 +22,7 @@ class BStockInstrument:
     @property
     def inferred_underlying_ticker(self) -> str:
         """Infer ticker from Binance naming convention; not authoritative metadata."""
-        return self.base_asset[:-1] if self.base_asset.endswith("B") else self.base_asset
+        return self.base_asset.removesuffix("B")
 
 
 def _candidate_symbols(
@@ -54,7 +55,7 @@ def discover_bstocks(
         symbol = str(item["symbol"])
         try:
             calculation = reference_price_calculation(symbol, client=client)
-        except Exception:
+        except BinanceError:
             continue
 
         if calculation.get("calculationType") != "EXTERNAL":
