@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import argparse
+import json
 from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import exchange_calendars as xcals
 import polars as pl
+
+from .validation import CostModel, apply_cost_model, chronological_holdout, summarize_holdout
 
 NY = ZoneInfo("America/New_York")
 REQUIRED_COLUMNS = {
@@ -80,9 +83,18 @@ def label_us_equity_sessions(frame: pl.DataFrame) -> pl.DataFrame:
     """Label PRE / REGULAR / AFTER / CLOSED using the XNYS exchange calendar."""
     if frame.is_empty():
         return frame.with_columns(
+            pl.lit(None, dtype=pl.String).alias("market_date"),
             pl.lit(None, dtype=pl.String).alias("session_date"),
             pl.lit(None, dtype=pl.String).alias("market_session"),
         )
+
+    frame = frame.with_columns(
+        pl.from_epoch(pl.col("observed_timestamp_ms"), time_unit="ms")
+        .dt.convert_time_zone("America/New_York")
+        .dt.date()
+        .cast(pl.String)
+        .alias("market_date")
+    )
 
     minimum_ms = int(frame["observed_timestamp_ms"].min())
     maximum_ms = int(frame["observed_timestamp_ms"].max())
@@ -271,6 +283,36 @@ def summarize_forward_outcomes(outcomes: pl.DataFrame) -> pl.DataFrame:
     if outcomes.is_empty():
         return pl.DataFrame()
 
+    aggregations: list[pl.Expr] = [
+        pl.len().alias("signals"),
+        pl.col("forward_trade_return_bps").count().alias("matched"),
+        pl.col("gross_convergence_edge_bps").mean().alias("mean_signal_edge_bps"),
+        pl.col("forward_trade_return_bps").mean().alias("mean_forward_trade_bps"),
+        pl.col("forward_trade_return_bps").median().alias("median_forward_trade_bps"),
+        (pl.col("forward_trade_return_bps") > 0).mean().alias("positive_rate"),
+        pl.col("forward_trade_return_bps")
+        .quantile(0.05, interpolation="linear")
+        .alias("p05_forward_trade_bps"),
+        pl.col("forward_trade_return_bps")
+        .quantile(0.95, interpolation="linear")
+        .alias("p95_forward_trade_bps"),
+        pl.col("basis_convergence_bps").mean().alias("mean_basis_convergence_bps"),
+        pl.col("reference_lag_ms").mean().alias("mean_reference_lag_ms"),
+        pl.col("event_age_ms").mean().alias("mean_event_age_ms"),
+    ]
+
+    if "net_forward_trade_return_bps" in outcomes.columns:
+        aggregations.extend(
+            [
+                pl.col("total_cost_bps").mean().alias("mean_total_cost_bps"),
+                pl.col("net_forward_trade_return_bps").mean().alias("mean_net_forward_trade_bps"),
+                pl.col("net_forward_trade_return_bps")
+                .median()
+                .alias("median_net_forward_trade_bps"),
+                (pl.col("net_forward_trade_return_bps") > 0).mean().alias("net_positive_rate"),
+            ]
+        )
+
     return (
         outcomes.group_by(
             "horizon_s",
@@ -279,23 +321,7 @@ def summarize_forward_outcomes(outcomes: pl.DataFrame) -> pl.DataFrame:
             "edge_bucket",
             "preferred_side",
         )
-        .agg(
-            pl.len().alias("signals"),
-            pl.col("forward_trade_return_bps").count().alias("matched"),
-            pl.col("gross_convergence_edge_bps").mean().alias("mean_signal_edge_bps"),
-            pl.col("forward_trade_return_bps").mean().alias("mean_forward_trade_bps"),
-            pl.col("forward_trade_return_bps").median().alias("median_forward_trade_bps"),
-            (pl.col("forward_trade_return_bps") > 0).mean().alias("positive_rate"),
-            pl.col("forward_trade_return_bps")
-            .quantile(0.05, interpolation="linear")
-            .alias("p05_forward_trade_bps"),
-            pl.col("forward_trade_return_bps")
-            .quantile(0.95, interpolation="linear")
-            .alias("p95_forward_trade_bps"),
-            pl.col("basis_convergence_bps").mean().alias("mean_basis_convergence_bps"),
-            pl.col("reference_lag_ms").mean().alias("mean_reference_lag_ms"),
-            pl.col("event_age_ms").mean().alias("mean_event_age_ms"),
-        )
+        .agg(*aggregations)
         .sort(
             "horizon_s",
             "market_session",
@@ -314,6 +340,8 @@ def analyze_file(
     max_event_age_ms: int | None = 5_000,
     max_reference_lag_ms: int | None = None,
     max_match_lag_ms: int = 2_000,
+    cost_model: CostModel = CostModel(),
+    test_fraction: float = 0.30,
 ) -> pl.DataFrame:
     """Run the full offline research pass and persist enriched datasets."""
     source = Path(input_path)
@@ -329,18 +357,46 @@ def analyze_file(
     if signals.is_empty():
         raise ValueError("No usable observations remain after cleaning")
 
-    outcomes = forward_outcomes(
-        signals,
-        horizons_s=horizons_s,
-        max_match_lag_ms=max_match_lag_ms,
+    outcomes = apply_cost_model(
+        forward_outcomes(
+            signals,
+            horizons_s=horizons_s,
+            max_match_lag_ms=max_match_lag_ms,
+        ),
+        cost_model,
     )
+    split = chronological_holdout(outcomes, test_fraction=test_fraction)
+    outcomes = split.frame
     summary = summarize_forward_outcomes(outcomes)
+    holdout_summary = summarize_holdout(outcomes)
 
     target = Path(output_dir)
     target.mkdir(parents=True, exist_ok=True)
     signals.write_parquet(target / "signals.parquet")
     outcomes.write_parquet(target / "forward_outcomes.parquet")
     summary.write_csv(target / "forward_summary.csv")
+    holdout_summary.write_csv(target / "holdout_summary.csv")
+    (target / "analysis_config.json").write_text(
+        json.dumps(
+            {
+                "input": str(source),
+                "horizons_s": horizons_s,
+                "max_event_age_ms": max_event_age_ms,
+                "max_reference_lag_ms": max_reference_lag_ms,
+                "max_match_lag_ms": max_match_lag_ms,
+                "taker_fee_bps_per_side": cost_model.taker_fee_bps_per_side,
+                "slippage_bps_per_side": cost_model.slippage_bps_per_side,
+                "short_borrow_bps_per_day": cost_model.short_borrow_bps_per_day,
+                "test_fraction": test_fraction,
+                "holdout_cutoff_market_date": split.cutoff_date,
+                "train_market_dates": split.train_dates,
+                "test_market_dates": split.test_dates,
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
     return summary
 
 
@@ -361,6 +417,10 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-event-age-ms", type=int, default=5_000)
     parser.add_argument("--max-reference-lag-ms", type=int)
     parser.add_argument("--max-match-lag-ms", type=int, default=2_000)
+    parser.add_argument("--taker-fee-bps-per-side", type=float, default=10.0)
+    parser.add_argument("--slippage-bps-per-side", type=float, default=0.0)
+    parser.add_argument("--short-borrow-bps-per-day", type=float, default=0.0)
+    parser.add_argument("--test-fraction", type=float, default=0.30)
     return parser
 
 
@@ -373,6 +433,12 @@ def main() -> None:
         max_event_age_ms=args.max_event_age_ms,
         max_reference_lag_ms=args.max_reference_lag_ms,
         max_match_lag_ms=args.max_match_lag_ms,
+        cost_model=CostModel(
+            taker_fee_bps_per_side=args.taker_fee_bps_per_side,
+            slippage_bps_per_side=args.slippage_bps_per_side,
+            short_borrow_bps_per_day=args.short_borrow_bps_per_day,
+        ),
+        test_fraction=args.test_fraction,
     )
     print(summary)
 

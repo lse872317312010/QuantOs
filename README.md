@@ -30,35 +30,46 @@ edge and timing freshness.
 
 ### 3. Forward-outcome research
 
-Install research dependencies and analyze collected observations:
-
     pip install -e '.[research]'
     bstocks-analyze --input data/stream_basis.csv
 
-Default horizons are 1s, 5s, 30s and 5m. The analysis:
+Default horizons are 1s, 5s, 30s and 5m. The analysis rejects stale stream state, labels US-equity
+sessions, forward-matches same-symbol observations, crosses entry/exit spreads, and measures basis
+convergence.
 
-1. rejects stale local stream state by configurable event age;
-2. labels PRE / REGULAR / AFTER / CLOSED using XNYS sessions;
-3. forward-matches the first same-symbol observation near each requested horizon;
-4. calculates executable entry-to-exit returns using ask-to-future-bid for LONG and
-   bid-to-future-ask for SHORT;
-5. measures absolute basis convergence;
-6. summarizes results by horizon, market session, freshness, edge bucket and side.
+### 4. Cost sensitivity + chronological holdout
+
+The same command now applies configurable costs and a date-level holdout:
+
+    bstocks-analyze \
+      --input data/stream_basis.csv \
+      --taker-fee-bps-per-side 10 \
+      --slippage-bps-per-side 2 \
+      --test-fraction 0.30
+
+The default fee baseline is 10 bps per taker side, matching the Binance regular-user standard Spot
+taker rate observed on 2026-09-30. Override it for actual VIP/BNB/promotion/account conditions.
+Spread is already embedded in executable forward returns and is not deducted twice.
 
 Outputs:
 
     data/research/signals.parquet
     data/research/forward_outcomes.parquet
     data/research/forward_summary.csv
+    data/research/holdout_summary.csv
+    data/research/analysis_config.json
 
-These are research measurements, not trading signals. Gross edge and forward returns remain before
-fees, slippage, financing and verified short-borrow availability.
+The forward outcome dataset includes gross and net return, cost components, New York market date,
+and TRAIN/TEST sample labels. If fewer than two market dates exist, the sample is labeled UNSPLIT.
+
+These are research measurements, not trading signals.
 
 See:
 
 - docs/research/001-reference-basis.md
 - docs/research/002-websocket-collection.md
 - docs/research/003-forward-outcomes.md
+- docs/research/004-costs-and-oos.md
 
 ## Quick start
 
