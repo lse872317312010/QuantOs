@@ -11,6 +11,7 @@ from zoneinfo import ZoneInfo
 import exchange_calendars as xcals
 import polars as pl
 
+from .robustness import threshold_stability_report
 from .uncertainty import daily_net_summary, date_cluster_bootstrap
 from .validation import CostModel, apply_cost_model, chronological_holdout, summarize_holdout
 
@@ -347,6 +348,9 @@ def analyze_file(
     bootstrap_confidence: float = 0.95,
     bootstrap_min_dates: int = 5,
     bootstrap_seed: int = 8_723,
+    thresholds_bps: tuple[float, ...] = (5.0, 10.0, 15.0, 25.0, 50.0),
+    threshold_min_train_dates: int = 5,
+    fdr_alpha: float = 0.05,
 ) -> pl.DataFrame:
     """Run the full offline research pass and persist enriched datasets."""
     source = Path(input_path)
@@ -384,6 +388,12 @@ def analyze_file(
         min_dates=bootstrap_min_dates,
         seed=bootstrap_seed,
     )
+    threshold_summary = threshold_stability_report(
+        outcomes,
+        thresholds_bps=thresholds_bps,
+        min_train_dates=threshold_min_train_dates,
+        fdr_alpha=fdr_alpha,
+    )
 
     target = Path(output_dir)
     target.mkdir(parents=True, exist_ok=True)
@@ -393,6 +403,7 @@ def analyze_file(
     holdout_summary.write_csv(target / "holdout_summary.csv")
     daily_summary.write_csv(target / "daily_net_summary.csv")
     bootstrap_summary.write_csv(target / "bootstrap_ci.csv")
+    threshold_summary.write_csv(target / "threshold_stability.csv")
     (target / "analysis_config.json").write_text(
         json.dumps(
             {
@@ -412,6 +423,9 @@ def analyze_file(
                 "bootstrap_confidence": bootstrap_confidence,
                 "bootstrap_min_dates": bootstrap_min_dates,
                 "bootstrap_seed": bootstrap_seed,
+                "thresholds_bps": thresholds_bps,
+                "threshold_min_train_dates": threshold_min_train_dates,
+                "fdr_alpha": fdr_alpha,
             },
             indent=2,
         )
@@ -419,6 +433,13 @@ def analyze_file(
         encoding="utf-8",
     )
     return summary
+
+
+def _parse_thresholds(raw: str) -> tuple[float, ...]:
+    thresholds = tuple(float(item.strip()) for item in raw.split(",") if item.strip())
+    if not thresholds or any(value <= 0 for value in thresholds):
+        raise argparse.ArgumentTypeError("thresholds must be positive comma-separated bps values")
+    return thresholds
 
 
 def _parse_horizons(raw: str) -> tuple[int, ...]:
@@ -446,6 +467,9 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--bootstrap-confidence", type=float, default=0.95)
     parser.add_argument("--bootstrap-min-dates", type=int, default=5)
     parser.add_argument("--bootstrap-seed", type=int, default=8_723)
+    parser.add_argument("--thresholds-bps", type=_parse_thresholds, default=(5.0, 10.0, 15.0, 25.0, 50.0))
+    parser.add_argument("--threshold-min-train-dates", type=int, default=5)
+    parser.add_argument("--fdr-alpha", type=float, default=0.05)
     return parser
 
 
@@ -468,6 +492,9 @@ def main() -> None:
         bootstrap_confidence=args.bootstrap_confidence,
         bootstrap_min_dates=args.bootstrap_min_dates,
         bootstrap_seed=args.bootstrap_seed,
+        thresholds_bps=args.thresholds_bps,
+        threshold_min_train_dates=args.threshold_min_train_dates,
+        fdr_alpha=args.fdr_alpha,
     )
     print(summary)
 
