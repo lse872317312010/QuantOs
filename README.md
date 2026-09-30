@@ -79,6 +79,24 @@ Additional outputs:
 
 Confidence intervals are left null when a research cell has too few independent market dates.
 
+### 6. Threshold stability + multiple-testing control
+
+Candidate thresholds are screened on TRAIN dates only. Daily means are tested with SciPy and
+Benjamini-Hochberg FDR correction; TEST metrics remain descriptive and cannot change the selection
+flags.
+
+    bstocks-analyze \
+      --input data/stream_basis.csv \
+      --thresholds-bps 5,10,15,25,50 \
+      --threshold-min-train-dates 5 \
+      --fdr-alpha 0.05
+
+Additional output:
+
+    data/research/threshold_stability.csv
+
+A stable TRAIN candidate must pass FDR and have at least one adjacent threshold pass as well.
+
 These are research measurements, not trading signals.
 
 See:
@@ -88,6 +106,7 @@ See:
 - docs/research/003-forward-outcomes.md
 - docs/research/004-costs-and-oos.md
 - docs/research/005-date-cluster-bootstrap.md
+- docs/research/006-threshold-stability-fdr.md
 
 ## Quick start
 
