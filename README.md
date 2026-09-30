@@ -16,15 +16,15 @@ Our code should concentrate on **features, hypotheses, validation, and strategy 
 
 ## Current milestone: live bStocks basis scanner
 
-The repository now has a first end-to-end public-data pipeline:
+The repository has an end-to-end public-data pipeline:
 
 1. Query Binance Spot exchange metadata.
 2. Find trading USDT symbols following the bStocks B-suffix naming convention.
 3. Confirm each candidate through Binance reference-price calculation type = EXTERNAL.
-4. Pull best bid/ask through Binance's official SDK.
+4. Pull best bid/ask through Binance official SDK.
 5. Pull Binance official reference price.
-6. Compute midpoint/reference basis and spread in basis points.
-7. Rank anomalies and append snapshots to a local CSV research dataset.
+6. Compute midpoint/reference basis, spread, reference lag and bid/ask-side convergence edge.
+7. Rank gross executable convergence edges and append snapshots to a local CSV research dataset.
 
 No static bStocks symbol list is required.
 
@@ -36,7 +36,7 @@ Python 3.12+ is recommended.
     source .venv/bin/activate
     pip install -e '.[dev]'
     pytest
-    bstocks-scan --threshold-bps 25
+    bstocks-scan --threshold-bps 10
 
 By default snapshots append to:
 
@@ -45,6 +45,9 @@ By default snapshots append to:
 To inspect without writing:
 
     bstocks-scan --no-write
+
+The displayed gross edge is before fees, slippage, latency and borrow constraints. SHORT is a
+research-side calculation until actual borrow/margin availability is verified.
 
 ## Codespaces
 
@@ -61,8 +64,13 @@ Reference-price basis:
     mid = (best_bid + best_ask) / 2
     basis = mid / reference_price - 1
 
-This raw basis is not a trading signal by itself. It must survive spread, fees, latency,
-underlying-market session effects and out-of-sample validation.
+Gross convergence edges:
+
+    long_edge = reference_price / ask - 1
+    short_edge = bid / reference_price - 1
+
+This is still not a trading signal. It must survive fees, latency, market-session effects,
+borrow constraints and out-of-sample validation.
 
 See docs/research/001-reference-basis.md.
 
