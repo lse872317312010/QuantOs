@@ -21,9 +21,18 @@ def append_snapshot_csv(
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
     exists = target.exists() and target.stat().st_size > 0
+    fieldnames = list(rows[0].keys())
+
+    if exists:
+        with target.open("r", newline="", encoding="utf-8") as handle:
+            existing_header = next(csv.reader(handle), [])
+        if existing_header != fieldnames:
+            raise ValueError(
+                f"CSV schema mismatch for {target}; use a new file or migrate the existing dataset"
+            )
 
     with target.open("a", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=list(rows[0].keys()))
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
         if not exists:
             writer.writeheader()
         writer.writerows(rows)

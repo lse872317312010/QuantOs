@@ -13,6 +13,7 @@ dependencies = [
 
 [project.scripts]
 bstocks-scan = "bstocks_alpha.cli:main"
+bstocks-stream = "bstocks_alpha.streaming:main"
 
 [project.optional-dependencies]
 engine = [
