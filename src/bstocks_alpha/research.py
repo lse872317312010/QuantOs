@@ -208,7 +208,7 @@ def forward_outcomes(
     outcomes: list[pl.DataFrame] = []
 
     for horizon_s in horizons_s:
-        future_timestamp = f"_future_timestamp_ms"
+        future_timestamp = "_future_timestamp_ms"
         future_frame = (
             future.rename(
                 {
