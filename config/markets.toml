@@ -1,0 +1,4 @@
+# Research candidates only. Always confirm live exchangeInfo before trading.
+[binance_bstocks]
+quote = "USDT"
+symbols = ["SPYBUSDT", "QQQBUSDT", "NVDABUSDT", "TSLABUSDT"]
