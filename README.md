@@ -62,6 +62,23 @@ Outputs:
 The forward outcome dataset includes gross and net return, cost components, New York market date,
 and TRAIN/TEST sample labels. If fewer than two market dates exist, the sample is labeled UNSPLIT.
 
+### 5. Date-clustered uncertainty
+
+High-frequency rows from one day are not treated as independent experiments. The pipeline first
+collapses net returns to market-date clusters and then runs a deterministic date bootstrap:
+
+    bstocks-analyze \
+      --input data/stream_basis.csv \
+      --bootstrap-resamples 2000 \
+      --bootstrap-min-dates 5
+
+Additional outputs:
+
+    data/research/daily_net_summary.csv
+    data/research/bootstrap_ci.csv
+
+Confidence intervals are left null when a research cell has too few independent market dates.
+
 These are research measurements, not trading signals.
 
 See:
@@ -70,6 +87,7 @@ See:
 - docs/research/002-websocket-collection.md
 - docs/research/003-forward-outcomes.md
 - docs/research/004-costs-and-oos.md
+- docs/research/005-date-cluster-bootstrap.md
 
 ## Quick start
 
