@@ -20,6 +20,10 @@ bstocks-analyze = "bstocks_alpha.research:main"
 engine = [
   "nautilus_trader>=1,<2",
 ]
+research-core = [
+  "exchange_calendars>=4.13,<5",
+  "polars>=1.44,<2",
+]
 research = [
   "duckdb>=1.0",
   "exchange_calendars>=4.13,<5",
