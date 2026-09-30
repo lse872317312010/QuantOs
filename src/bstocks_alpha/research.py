@@ -11,6 +11,7 @@ from zoneinfo import ZoneInfo
 import exchange_calendars as xcals
 import polars as pl
 
+from .uncertainty import daily_net_summary, date_cluster_bootstrap
 from .validation import CostModel, apply_cost_model, chronological_holdout, summarize_holdout
 
 NY = ZoneInfo("America/New_York")
@@ -342,6 +343,10 @@ def analyze_file(
     max_match_lag_ms: int = 2_000,
     cost_model: CostModel | None = None,
     test_fraction: float = 0.30,
+    bootstrap_resamples: int = 2_000,
+    bootstrap_confidence: float = 0.95,
+    bootstrap_min_dates: int = 5,
+    bootstrap_seed: int = 8_723,
 ) -> pl.DataFrame:
     """Run the full offline research pass and persist enriched datasets."""
     source = Path(input_path)
@@ -371,6 +376,14 @@ def analyze_file(
     outcomes = split.frame
     summary = summarize_forward_outcomes(outcomes)
     holdout_summary = summarize_holdout(outcomes)
+    daily_summary = daily_net_summary(outcomes)
+    bootstrap_summary = date_cluster_bootstrap(
+        daily_summary,
+        resamples=bootstrap_resamples,
+        confidence=bootstrap_confidence,
+        min_dates=bootstrap_min_dates,
+        seed=bootstrap_seed,
+    )
 
     target = Path(output_dir)
     target.mkdir(parents=True, exist_ok=True)
@@ -378,6 +391,8 @@ def analyze_file(
     outcomes.write_parquet(target / "forward_outcomes.parquet")
     summary.write_csv(target / "forward_summary.csv")
     holdout_summary.write_csv(target / "holdout_summary.csv")
+    daily_summary.write_csv(target / "daily_net_summary.csv")
+    bootstrap_summary.write_csv(target / "bootstrap_ci.csv")
     (target / "analysis_config.json").write_text(
         json.dumps(
             {
@@ -393,6 +408,10 @@ def analyze_file(
                 "holdout_cutoff_market_date": split.cutoff_date,
                 "train_market_dates": split.train_dates,
                 "test_market_dates": split.test_dates,
+                "bootstrap_resamples": bootstrap_resamples,
+                "bootstrap_confidence": bootstrap_confidence,
+                "bootstrap_min_dates": bootstrap_min_dates,
+                "bootstrap_seed": bootstrap_seed,
             },
             indent=2,
         )
@@ -423,6 +442,10 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--slippage-bps-per-side", type=float, default=0.0)
     parser.add_argument("--short-borrow-bps-per-day", type=float, default=0.0)
     parser.add_argument("--test-fraction", type=float, default=0.30)
+    parser.add_argument("--bootstrap-resamples", type=int, default=2_000)
+    parser.add_argument("--bootstrap-confidence", type=float, default=0.95)
+    parser.add_argument("--bootstrap-min-dates", type=int, default=5)
+    parser.add_argument("--bootstrap-seed", type=int, default=8_723)
     return parser
 
 
@@ -441,6 +464,10 @@ def main() -> None:
             short_borrow_bps_per_day=args.short_borrow_bps_per_day,
         ),
         test_fraction=args.test_fraction,
+        bootstrap_resamples=args.bootstrap_resamples,
+        bootstrap_confidence=args.bootstrap_confidence,
+        bootstrap_min_dates=args.bootstrap_min_dates,
+        bootstrap_seed=args.bootstrap_seed,
     )
     print(summary)
 
