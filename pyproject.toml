@@ -25,6 +25,7 @@ research-core = [
   "numpy>=2,<3",
   "polars>=1.44,<2",
   "scipy>=1.15,<2",
+  "skfolio>=0.12,<1",
 ]
 research = [
   "duckdb>=1.0",
