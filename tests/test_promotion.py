@@ -76,3 +76,7 @@ def test_promotion_gate_validates_probability_threshold() -> None:
             pl.DataFrame(),
             min_positive_oos_fold_rate=1.1,
         )
+
+
+def test_promotion_gate_allows_empty_early_research_history() -> None:
+    assert research_promotion_gate(pl.DataFrame(), pl.DataFrame()).is_empty()
