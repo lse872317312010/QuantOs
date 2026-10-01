@@ -97,6 +97,25 @@ Additional output:
 
 A stable TRAIN candidate must pass FDR and have at least one adjacent threshold pass as well.
 
+### 7. Walk-forward out-of-sample validation
+
+The pipeline now repeats Research 006 through chronological folds using skfolio's `WalkForward`.
+Each fold selects candidates only from its TRAIN dates and then measures those frozen selections on
+later TEST dates, with a configurable purge gap.
+
+    bstocks-analyze \
+      --input data/stream_basis.csv \
+      --walk-forward-train-dates 20 \
+      --walk-forward-test-dates 5 \
+      --walk-forward-purge-dates 1
+
+Additional outputs:
+
+    data/research/walk_forward_folds.csv
+    data/research/walk_forward_summary.csv
+
+Use `--walk-forward-rolling` for a fixed-size rolling train window; the default is expanding.
+
 These are research measurements, not trading signals.
 
 See:
@@ -107,6 +126,7 @@ See:
 - docs/research/004-costs-and-oos.md
 - docs/research/005-date-cluster-bootstrap.md
 - docs/research/006-threshold-stability-fdr.md
+- docs/research/007-walk-forward-oos.md
 
 ## Quick start
 

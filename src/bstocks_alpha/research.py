@@ -14,6 +14,7 @@ import polars as pl
 from .robustness import threshold_stability_report
 from .uncertainty import daily_net_summary, date_cluster_bootstrap
 from .validation import CostModel, apply_cost_model, chronological_holdout, summarize_holdout
+from .walkforward import summarize_walk_forward, walk_forward_threshold_report
 
 NY = ZoneInfo("America/New_York")
 REQUIRED_COLUMNS = {
@@ -351,6 +352,10 @@ def analyze_file(
     thresholds_bps: tuple[float, ...] = (5.0, 10.0, 15.0, 25.0, 50.0),
     threshold_min_train_dates: int = 5,
     fdr_alpha: float = 0.05,
+    walk_forward_train_dates: int = 20,
+    walk_forward_test_dates: int = 5,
+    walk_forward_purge_dates: int = 1,
+    walk_forward_expand_train: bool = True,
 ) -> pl.DataFrame:
     """Run the full offline research pass and persist enriched datasets."""
     source = Path(input_path)
@@ -394,6 +399,17 @@ def analyze_file(
         min_train_dates=threshold_min_train_dates,
         fdr_alpha=fdr_alpha,
     )
+    walk_forward_folds = walk_forward_threshold_report(
+        outcomes,
+        thresholds_bps=thresholds_bps,
+        train_size_dates=walk_forward_train_dates,
+        test_size_dates=walk_forward_test_dates,
+        purged_size_dates=walk_forward_purge_dates,
+        expand_train=walk_forward_expand_train,
+        min_train_dates=threshold_min_train_dates,
+        fdr_alpha=fdr_alpha,
+    )
+    walk_forward_summary = summarize_walk_forward(walk_forward_folds)
 
     target = Path(output_dir)
     target.mkdir(parents=True, exist_ok=True)
@@ -404,6 +420,8 @@ def analyze_file(
     daily_summary.write_csv(target / "daily_net_summary.csv")
     bootstrap_summary.write_csv(target / "bootstrap_ci.csv")
     threshold_summary.write_csv(target / "threshold_stability.csv")
+    walk_forward_folds.write_csv(target / "walk_forward_folds.csv")
+    walk_forward_summary.write_csv(target / "walk_forward_summary.csv")
     (target / "analysis_config.json").write_text(
         json.dumps(
             {
@@ -426,6 +444,10 @@ def analyze_file(
                 "thresholds_bps": thresholds_bps,
                 "threshold_min_train_dates": threshold_min_train_dates,
                 "fdr_alpha": fdr_alpha,
+                "walk_forward_train_dates": walk_forward_train_dates,
+                "walk_forward_test_dates": walk_forward_test_dates,
+                "walk_forward_purge_dates": walk_forward_purge_dates,
+                "walk_forward_expand_train": walk_forward_expand_train,
             },
             indent=2,
         )
@@ -474,6 +496,14 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--threshold-min-train-dates", type=int, default=5)
     parser.add_argument("--fdr-alpha", type=float, default=0.05)
+    parser.add_argument("--walk-forward-train-dates", type=int, default=20)
+    parser.add_argument("--walk-forward-test-dates", type=int, default=5)
+    parser.add_argument("--walk-forward-purge-dates", type=int, default=1)
+    parser.add_argument(
+        "--walk-forward-rolling",
+        action="store_true",
+        help="Use a fixed rolling train window instead of an expanding one",
+    )
     return parser
 
 
@@ -499,6 +529,10 @@ def main() -> None:
         thresholds_bps=args.thresholds_bps,
         threshold_min_train_dates=args.threshold_min_train_dates,
         fdr_alpha=args.fdr_alpha,
+        walk_forward_train_dates=args.walk_forward_train_dates,
+        walk_forward_test_dates=args.walk_forward_test_dates,
+        walk_forward_purge_dates=args.walk_forward_purge_dates,
+        walk_forward_expand_train=not args.walk_forward_rolling,
     )
     print(summary)
 
