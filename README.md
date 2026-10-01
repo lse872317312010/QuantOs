@@ -116,6 +116,17 @@ Additional outputs:
 
 Use `--walk-forward-rolling` for a fixed-size rolling train window; the default is expanding.
 
+### 8. Explicit research promotion gates
+
+The final research stage converts the TRAIN + repeated OOS evidence into machine-readable states
+instead of relying on manual CSV inspection.
+
+    data/research/promotion_gate.csv
+
+Default gates require at least 3 selected walk-forward folds, 10 OOS market dates, a 60% positive
+OOS fold rate, and positive mean OOS daily net return. Passing produces `RESEARCH_CANDIDATE`, not
+"production ready"; execution and capacity validation are separate later gates.
+
 These are research measurements, not trading signals.
 
 See:
@@ -127,6 +138,7 @@ See:
 - docs/research/005-date-cluster-bootstrap.md
 - docs/research/006-threshold-stability-fdr.md
 - docs/research/007-walk-forward-oos.md
+- docs/research/008-research-promotion-gates.md
 
 ## Quick start
 
