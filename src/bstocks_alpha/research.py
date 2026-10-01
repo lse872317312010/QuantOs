@@ -11,6 +11,7 @@ from zoneinfo import ZoneInfo
 import exchange_calendars as xcals
 import polars as pl
 
+from .promotion import research_promotion_gate
 from .robustness import threshold_stability_report
 from .uncertainty import daily_net_summary, date_cluster_bootstrap
 from .validation import CostModel, apply_cost_model, chronological_holdout, summarize_holdout
@@ -356,6 +357,10 @@ def analyze_file(
     walk_forward_test_dates: int = 5,
     walk_forward_purge_dates: int = 1,
     walk_forward_expand_train: bool = True,
+    promotion_min_selected_folds: int = 3,
+    promotion_min_test_market_dates: int = 10,
+    promotion_min_positive_oos_fold_rate: float = 0.60,
+    promotion_min_mean_oos_daily_net_bps: float = 0.0,
 ) -> pl.DataFrame:
     """Run the full offline research pass and persist enriched datasets."""
     source = Path(input_path)
@@ -410,6 +415,14 @@ def analyze_file(
         fdr_alpha=fdr_alpha,
     )
     walk_forward_summary = summarize_walk_forward(walk_forward_folds)
+    promotion_gate = research_promotion_gate(
+        threshold_summary,
+        walk_forward_summary,
+        min_selected_folds=promotion_min_selected_folds,
+        min_test_market_dates=promotion_min_test_market_dates,
+        min_positive_oos_fold_rate=promotion_min_positive_oos_fold_rate,
+        min_mean_oos_daily_net_bps=promotion_min_mean_oos_daily_net_bps,
+    )
 
     target = Path(output_dir)
     target.mkdir(parents=True, exist_ok=True)
@@ -422,6 +435,7 @@ def analyze_file(
     threshold_summary.write_csv(target / "threshold_stability.csv")
     walk_forward_folds.write_csv(target / "walk_forward_folds.csv")
     walk_forward_summary.write_csv(target / "walk_forward_summary.csv")
+    promotion_gate.write_csv(target / "promotion_gate.csv")
     (target / "analysis_config.json").write_text(
         json.dumps(
             {
@@ -448,6 +462,10 @@ def analyze_file(
                 "walk_forward_test_dates": walk_forward_test_dates,
                 "walk_forward_purge_dates": walk_forward_purge_dates,
                 "walk_forward_expand_train": walk_forward_expand_train,
+                "promotion_min_selected_folds": promotion_min_selected_folds,
+                "promotion_min_test_market_dates": promotion_min_test_market_dates,
+                "promotion_min_positive_oos_fold_rate": promotion_min_positive_oos_fold_rate,
+                "promotion_min_mean_oos_daily_net_bps": promotion_min_mean_oos_daily_net_bps,
             },
             indent=2,
         )
@@ -504,6 +522,10 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Use a fixed rolling train window instead of an expanding one",
     )
+    parser.add_argument("--promotion-min-selected-folds", type=int, default=3)
+    parser.add_argument("--promotion-min-test-market-dates", type=int, default=10)
+    parser.add_argument("--promotion-min-positive-oos-fold-rate", type=float, default=0.60)
+    parser.add_argument("--promotion-min-mean-oos-daily-net-bps", type=float, default=0.0)
     return parser
 
 
@@ -533,6 +555,10 @@ def main() -> None:
         walk_forward_test_dates=args.walk_forward_test_dates,
         walk_forward_purge_dates=args.walk_forward_purge_dates,
         walk_forward_expand_train=not args.walk_forward_rolling,
+        promotion_min_selected_folds=args.promotion_min_selected_folds,
+        promotion_min_test_market_dates=args.promotion_min_test_market_dates,
+        promotion_min_positive_oos_fold_rate=args.promotion_min_positive_oos_fold_rate,
+        promotion_min_mean_oos_daily_net_bps=args.promotion_min_mean_oos_daily_net_bps,
     )
     print(summary)
 
