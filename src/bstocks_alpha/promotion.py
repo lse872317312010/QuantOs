@@ -17,6 +17,8 @@ def research_promotion_gate(
     min_mean_oos_daily_net_bps: float = 0.0,
 ) -> pl.DataFrame:
     """Combine TRAIN screening and repeated OOS evidence into explicit research states."""
+    if threshold_report.is_empty():
+        return pl.DataFrame()
     if min_selected_folds < 1:
         raise ValueError("min_selected_folds must be positive")
     if min_test_market_dates < 1:
