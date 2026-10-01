@@ -19,7 +19,7 @@ def threshold_stability_report(
     fdr_alpha: float = 0.05,
 ) -> pl.DataFrame:
     """Sweep edge thresholds without using TEST data for candidate selection."""
-    thresholds = tuple(sorted(set(float(value) for value in thresholds_bps)))
+    thresholds = tuple(sorted({float(value) for value in thresholds_bps}))
     if not thresholds or any(value <= 0 for value in thresholds):
         raise ValueError("thresholds_bps must contain positive values")
     if min_train_dates < 2:
