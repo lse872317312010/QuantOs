@@ -19,3 +19,11 @@ __all__ = [
     "EvidenceDomain",
     "RiskAssessment",
 ]
+
+from .interfaces import DecisionSynthesizer, EvidenceProvider, RiskProvider
+
+__all__ += [
+    "DecisionSynthesizer",
+    "EvidenceProvider",
+    "RiskProvider",
+]
