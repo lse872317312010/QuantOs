@@ -11,7 +11,6 @@ from quantos import (
     RiskAssessment,
 )
 
-
 NOW = datetime(2026, 10, 4, tzinfo=UTC)
 
 
