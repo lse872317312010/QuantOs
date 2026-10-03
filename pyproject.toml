@@ -3,9 +3,9 @@ requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
 
 [project]
-name = "bstocks-alpha-lab"
+name = "quantos-decision-platform"
 version = "0.1.0"
-description = "Upstream-first research lab for Binance bStocks alpha"
+description = "Human-in-the-loop market analysis and decision-support platform"
 requires-python = ">=3.12"
 dependencies = [
   "binance-sdk-spot",
@@ -43,7 +43,7 @@ dev = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/bstocks_alpha"]
+packages = ["src/quantos", "src/bstocks_alpha"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
