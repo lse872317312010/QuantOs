@@ -1,190 +1,158 @@
 # QuantOs
 
-Research-first repository for Binance bStocks / tokenized-equity alpha. This repo deliberately does **not** implement a trading engine, exchange connector, order state machine, generic backtester, or portfolio optimizer.
+QuantOs is a **human-in-the-loop market analysis and decision-support platform**.
 
-## Upstream-first policy
+The system is designed to help a person answer:
 
-Use mature upstreams for infrastructure:
+- what is happening in the market;
+- what changed materially;
+- which instruments or themes deserve attention;
+- what evidence supports or contradicts an idea;
+- what risks, blockers and invalidation conditions matter;
+- how an idea interacts with portfolio context;
+- what should be watched next.
 
-- Binance official Spot SDK for Spot REST/WebSocket/streams and bStocks reference-price endpoints.
-- exchange_calendars / XNYS for US-equity holidays and actual regular-session boundaries.
-- NautilusTrader for event-driven backtest/live execution when a strategy graduates to execution.
-- Hummingbot executors as reusable execution-pattern references when useful.
-- VectorBT/skfolio/Polars/DuckDB for research and portfolio analysis as needed.
+QuantOs may rank, compare, warn and explain. **The human remains the final decision-maker.**
+Automatic order submission and autonomous capital allocation are not the product priority.
 
-Our code concentrates on features, hypotheses, validation and strategy logic.
+## Architecture
 
-## Current research pipeline
+The platform is organized around a decision pipeline:
 
-### 1. One-shot market scan
+    source connectors
+        -> canonical data / storage
+        -> market state / features
+        -> research and model evidence
+        -> regime / risk / portfolio context
+        -> decision synthesis
+        -> analyst workspace / alerts
+        -> human decision
+        -> optional downstream action adapter
 
-    bstocks-scan --threshold-bps 10
-
-### 2. Continuous official WebSocket collection
-
-    bstocks-stream --symbols SPYBUSDT,NVDABUSDT --duration-seconds 600
-
-The collector dynamically discovers current USDT bStocks, subscribes through Binance official SDK
-to bookTicker and referencePrice, pairs the latest states and records basis, executable convergence
-edge and timing freshness.
-
-### 3. Forward-outcome research
-
-    pip install -e '.[research]'
-    bstocks-analyze --input data/stream_basis.csv
-
-Default horizons are 1s, 5s, 30s and 5m. The analysis rejects stale stream state, labels US-equity
-sessions, forward-matches same-symbol observations, crosses entry/exit spreads, and measures basis
-convergence.
-
-### 4. Cost sensitivity + chronological holdout
-
-The same command now applies configurable costs and a date-level holdout:
-
-    bstocks-analyze \
-      --input data/stream_basis.csv \
-      --taker-fee-bps-per-side 10 \
-      --slippage-bps-per-side 2 \
-      --test-fraction 0.30
-
-The default fee baseline is 10 bps per taker side, matching the Binance regular-user standard Spot
-taker rate observed on 2026-09-30. Override it for actual VIP/BNB/promotion/account conditions.
-Spread is already embedded in executable forward returns and is not deducted twice.
-
-Outputs:
-
-    data/research/signals.parquet
-    data/research/forward_outcomes.parquet
-    data/research/forward_summary.csv
-    data/research/holdout_summary.csv
-    data/research/analysis_config.json
-
-The forward outcome dataset includes gross and net return, cost components, New York market date,
-and TRAIN/TEST sample labels. If fewer than two market dates exist, the sample is labeled UNSPLIT.
-
-### 5. Date-clustered uncertainty
-
-High-frequency rows from one day are not treated as independent experiments. The pipeline first
-collapses net returns to market-date clusters and then runs a deterministic date bootstrap:
-
-    bstocks-analyze \
-      --input data/stream_basis.csv \
-      --bootstrap-resamples 2000 \
-      --bootstrap-min-dates 5
-
-Additional outputs:
-
-    data/research/daily_net_summary.csv
-    data/research/bootstrap_ci.csv
-
-Confidence intervals are left null when a research cell has too few independent market dates.
-
-### 6. Threshold stability + multiple-testing control
-
-Candidate thresholds are screened on TRAIN dates only. Daily means are tested with SciPy and
-Benjamini-Hochberg FDR correction; TEST metrics remain descriptive and cannot change the selection
-flags.
-
-    bstocks-analyze \
-      --input data/stream_basis.csv \
-      --thresholds-bps 5,10,15,25,50 \
-      --threshold-min-train-dates 5 \
-      --fdr-alpha 0.05
-
-Additional output:
-
-    data/research/threshold_stability.csv
-
-A stable TRAIN candidate must pass FDR and have at least one adjacent threshold pass as well.
-
-### 7. Walk-forward out-of-sample validation
-
-The pipeline now repeats Research 006 through chronological folds using skfolio's `WalkForward`.
-Each fold selects candidates only from its TRAIN dates and then measures those frozen selections on
-later TEST dates, with a configurable purge gap.
-
-    bstocks-analyze \
-      --input data/stream_basis.csv \
-      --walk-forward-train-dates 20 \
-      --walk-forward-test-dates 5 \
-      --walk-forward-purge-dates 1
-
-Additional outputs:
-
-    data/research/walk_forward_folds.csv
-    data/research/walk_forward_summary.csv
-
-Use `--walk-forward-rolling` for a fixed-size rolling train window; the default is expanding.
-
-### 8. Explicit research promotion gates
-
-The final research stage converts the TRAIN + repeated OOS evidence into machine-readable states
-instead of relying on manual CSV inspection.
-
-    data/research/promotion_gate.csv
-
-Default gates require at least 3 selected walk-forward folds, 10 OOS market dates, a 60% positive
-OOS fold rate, and positive mean OOS daily net return. Passing produces `RESEARCH_CANDIDATE`, not
-"production ready"; execution and capacity validation are separate later gates.
-
-These are research measurements, not trading signals.
+The core output is not an order. It is an auditable decision snapshot containing evidence,
+confidence, risk, alternatives and timestamps.
 
 See:
 
-- docs/research/001-reference-basis.md
-- docs/research/002-websocket-collection.md
-- docs/research/003-forward-outcomes.md
-- docs/research/004-costs-and-oos.md
-- docs/research/005-date-cluster-bootstrap.md
-- docs/research/006-threshold-stability-fdr.md
-- docs/research/007-walk-forward-oos.md
-- docs/research/008-research-promotion-gates.md
+- `docs/architecture/system-platform.md`
+- `docs/decisions/0002-human-in-the-loop-platform.md`
+- `ROADMAP.md`
 
-## Quick start
+## Core packages
 
-Python 3.12+ is recommended.
+    src/quantos/             platform-wide decision/evidence/risk contracts
+    src/bstocks_alpha/       first market + research vertical: Binance bStocks
+
+The `bstocks_alpha` package is intentionally a **provider**, not the platform boundary. Future
+markets, research models, risk providers and portfolio providers should plug into the generic
+QuantOs contracts.
+
+## Current implemented vertical slice
+
+The first complete vertical slice is Binance bStocks / tokenized-equity basis research.
+
+It currently provides:
+
+1. official Binance market discovery and WebSocket collection;
+2. book/reference-price basis features;
+3. executable forward-return research;
+4. cost sensitivity and chronological holdout;
+5. date-clustered bootstrap uncertainty;
+6. threshold stability and Benjamini-Hochberg FDR control;
+7. repeated walk-forward out-of-sample validation;
+8. machine-readable research promotion states.
+
+This subsystem produces research evidence that will be adapted into the generic decision platform.
+
+### Quick research run
 
     python -m venv .venv
     source .venv/bin/activate
     pip install -e '.[dev,research]'
-    pytest
+
     bstocks-scan --no-write
     bstocks-stream --symbols SPYBUSDT,NVDABUSDT --duration-seconds 60
     bstocks-analyze --input data/stream_basis.csv
 
-Research data is written below data/ and ignored by Git.
+Important outputs include:
 
-## Codespaces
+    data/research/forward_outcomes.parquet
+    data/research/bootstrap_ci.csv
+    data/research/threshold_stability.csv
+    data/research/walk_forward_summary.csv
+    data/research/promotion_gate.csv
 
-The repo includes a devcontainer. In GitHub:
+These are evidence artifacts, not trading instructions.
 
-    Code -> Codespaces -> Create codespace on main
+## Platform priorities
 
-Dependencies install automatically.
+Current priority is **framework breadth before execution depth**.
 
-## Layout
+The build order is:
 
-    src/bstocks_alpha/       thin Binance access + alpha/research features
-    config/                  research market configuration only
-    docs/decisions/          architecture decision records
-    docs/research/           explicit research hypotheses and validation plans
-    tests/                   unit/policy tests
+1. core contracts and architecture;
+2. analytical data plane and provenance;
+3. multi-domain evidence providers;
+4. risk and portfolio context;
+5. candidate synthesis / ranking / explanation;
+6. analyst workspace, alerts and decision history;
+7. optional action adapters.
 
-## Non-goals
+See `ROADMAP.md` for detailed exit criteria.
 
-Do not add custom implementations of:
+## Design rules
 
-- exchange authentication / signing
-- REST/WebSocket transport
-- matching engine
-- order lifecycle / OMS
-- generic event bus
-- generic backtest engine
-- generic portfolio optimizer
-- performance metric library
+- upstream-first: do not rebuild mature infrastructure;
+- point-in-time correctness: no future-data leakage;
+- evidence provenance: every conclusion must be traceable;
+- risk can veto: blockers are first-class outputs;
+- missing data reduces confidence instead of creating false certainty;
+- modular monolith first, services only when scale or isolation requires them;
+- no core module may require order execution to be useful.
 
-If an upstream lacks one bStocks-specific field, add the thinnest possible adapter and prefer contributing it upstream.
+## Non-goals for the core
 
-## Upstreams
+Do not implement custom versions of:
 
-See UPSTREAMS.md and docs/decisions/0001-upstream-first.md.
+- exchange authentication/signing;
+- generic REST/WebSocket transports;
+- matching engines;
+- OMS/order lifecycle;
+- generic event buses;
+- generic backtest engines;
+- generic portfolio optimizers;
+- performance metric libraries.
+
+If an upstream lacks one market-specific field, add the thinnest adapter possible.
+
+## Development
+
+Python 3.12+ is recommended.
+
+    pip install -e '.[dev,research-core]'
+    ruff check .
+    pytest -q
+
+The repository includes a Codespaces devcontainer.
+
+## Documentation
+
+Architecture:
+
+- `docs/architecture/system-platform.md`
+
+Architecture decisions:
+
+- `docs/decisions/0001-upstream-first.md`
+- `docs/decisions/0002-human-in-the-loop-platform.md`
+
+Current research vertical:
+
+- `docs/research/001-reference-basis.md`
+- `docs/research/002-websocket-collection.md`
+- `docs/research/003-forward-outcomes.md`
+- `docs/research/004-costs-and-oos.md`
+- `docs/research/005-date-cluster-bootstrap.md`
+- `docs/research/006-threshold-stability-fdr.md`
+- `docs/research/007-walk-forward-oos.md`
+- `docs/research/008-research-promotion-gates.md`
