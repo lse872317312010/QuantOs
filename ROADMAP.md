@@ -59,14 +59,18 @@ Deliver:
 Exit criterion:
 one instrument can have several independent evidence domains displayed together.
 
-## Phase D — risk and portfolio context
+## Phase D — risk and portfolio context — current priority
 
 Deliver:
-- position/exposure model;
-- concentration/correlation views;
-- liquidity and event-risk blockers;
-- scenario/stress framework;
-- portfolio-aware candidate annotations.
+- [x] position/exposure model;
+- [x] concentration risk provider;
+- [x] data-quality hard blockers;
+- [x] liquidity warning/blocker provider;
+- [x] conservative multi-provider risk aggregation;
+- [ ] correlation/crowding views;
+- [ ] event-risk provider;
+- [ ] scenario/stress framework;
+- [ ] portfolio-aware candidate annotations.
 
 Exit criterion:
 a strong strategy signal can be downgraded or blocked for explicit portfolio/risk reasons.
