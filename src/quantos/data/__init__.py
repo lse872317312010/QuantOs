@@ -11,6 +11,7 @@ from .models import (
     MarketSnapshot,
 )
 from .quality import assess_data_quality
+from .snapshot import SnapshotBuilder, SnapshotSourceQuery
 
 __all__ = [
     "AnalyticalCatalog",
@@ -21,5 +22,7 @@ __all__ = [
     "MarketEvent",
     "MarketEventType",
     "MarketSnapshot",
+    "SnapshotBuilder",
+    "SnapshotSourceQuery",
     "assess_data_quality",
 ]
