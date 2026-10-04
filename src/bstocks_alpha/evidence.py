@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from datetime import datetime
-from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
@@ -15,7 +14,7 @@ from quantos.data import DataQualityState, MarketSnapshot
 
 
 def _float(value: Any) -> float:
-    return float(value) if isinstance(value, Decimal) else float(value)
+    return float(value)
 
 
 class BStocksBasisEvidenceProvider:
@@ -34,7 +33,7 @@ class BStocksBasisEvidenceProvider:
     ) -> Sequence[Evidence]:
         snapshot = context.get("snapshot")
         if not isinstance(snapshot, MarketSnapshot):
-            raise ValueError("context['snapshot'] must be a MarketSnapshot")
+            raise TypeError("context['snapshot'] must be a MarketSnapshot")
 
         required = ("book_bid", "book_ask", "reference_price")
         if any(snapshot.values.get(key) is None for key in required):
