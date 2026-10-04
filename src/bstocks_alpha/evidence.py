@@ -5,7 +5,10 @@ from __future__ import annotations
 from collections.abc import Sequence
 from datetime import datetime
 from decimal import Decimal
+from pathlib import Path
 from typing import Any
+
+import polars as pl
 
 from quantos.contracts import Evidence, EvidenceDomain
 from quantos.data import DataQualityState, MarketSnapshot
@@ -85,5 +88,100 @@ class BStocksBasisEvidenceProvider:
                     "preferred_side": stance,
                     "gross_convergence_edge_bps": edge_bps,
                 },
+            ),
+        )
+
+
+class BStocksResearchGateEvidenceProvider:
+    """Expose Research 008 promotion state as strategy evidence for the active signal cell."""
+
+    def __init__(self, promotion_gate_path: str | Path) -> None:
+        self.path = Path(promotion_gate_path)
+
+    @property
+    def name(self) -> str:
+        return "binance-bstocks-research-gate"
+
+    def collect_evidence(
+        self,
+        *,
+        instrument: str,
+        as_of: datetime,
+        context: dict[str, Any],
+    ) -> Sequence[Evidence]:
+        if not self.path.exists():
+            return ()
+
+        required_context = ("horizon_s", "market_session", "preferred_side", "threshold_bps")
+        if any(key not in context for key in required_context):
+            return ()
+
+        frame = pl.read_csv(self.path)
+        required_columns = {
+            "horizon_s",
+            "market_session",
+            "preferred_side",
+            "threshold_bps",
+            "research_state",
+        }
+        if not required_columns.issubset(frame.columns):
+            raise ValueError("promotion gate is missing required research columns")
+
+        matched = frame.filter(
+            (pl.col("horizon_s") == int(context["horizon_s"]))
+            & (pl.col("market_session") == str(context["market_session"]))
+            & (pl.col("preferred_side") == str(context["preferred_side"]))
+            & (pl.col("threshold_bps") == float(context["threshold_bps"]))
+        )
+        if matched.is_empty():
+            return ()
+
+        row = matched.row(0, named=True)
+        state = str(row["research_state"])
+        positive_rate = row.get("positive_oos_fold_rate")
+        confidence = {
+            "RESEARCH_CANDIDATE": float(positive_rate) if positive_rate is not None else 0.8,
+            "OOS_WEAK": 0.35,
+            "INSUFFICIENT_OOS_HISTORY": 0.2,
+            "INSUFFICIENT_WALK_FORWARD": 0.15,
+            "REJECTED_TRAIN": 0.05,
+        }.get(state, 0.1)
+        confidence = min(1.0, max(0.0, confidence))
+
+        side = str(context["preferred_side"])
+        if state == "RESEARCH_CANDIDATE":
+            directional_score = confidence if side == "LONG" else -confidence
+        else:
+            directional_score = 0.0
+
+        metadata = {
+            "instrument": instrument,
+            "model_scope": "bstocks-cross-sectional",
+            "research_state": state,
+            "horizon_s": int(context["horizon_s"]),
+            "market_session": str(context["market_session"]),
+            "preferred_side": side,
+            "threshold_bps": float(context["threshold_bps"]),
+        }
+        for key in (
+            "selected_folds",
+            "test_market_dates",
+            "mean_oos_daily_net_bps",
+            "median_oos_daily_net_bps",
+            "positive_oos_fold_rate",
+            "train_fdr_q_value",
+        ):
+            if key in row:
+                metadata[key] = row[key]
+
+        return (
+            Evidence(
+                domain=EvidenceDomain.STRATEGY,
+                source=self.name,
+                summary=f"research validation state {state}",
+                observed_at=as_of,
+                confidence=confidence,
+                directional_score=directional_score,
+                metadata=metadata,
             ),
         )
