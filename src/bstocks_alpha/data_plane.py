@@ -31,17 +31,17 @@ def register_basis_csv(
 
     con = duckdb.connect()
     try:
+        escaped_source = str(source).replace("'", "''")
         con.execute(
-            """
+            f"""
             CREATE TEMP VIEW basis AS
             SELECT
                 *,
                 symbol || '.BINANCE' AS instrument_id,
                 to_timestamp(observed_timestamp_ms / 1000.0) AS ts_observed,
                 to_timestamp(reference_timestamp_ms / 1000.0) AS ts_reference
-            FROM read_csv_auto(?, header = true)
-            """,
-            [str(source)],
+            FROM read_csv_auto('{escaped_source}', header = true)
+            """
         )
         con.execute(
             """
