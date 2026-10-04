@@ -1,11 +1,9 @@
 from datetime import UTC, datetime
-
 from pathlib import Path
 
 from bstocks_alpha.evidence import BStocksBasisEvidenceProvider, BStocksResearchGateEvidenceProvider
 from quantos.contracts import EvidenceDomain
 from quantos.data import DataQualityReport, DataQualityState, MarketSnapshot
-
 
 NOW = datetime(2026, 10, 4, tzinfo=UTC)
 
