@@ -6,6 +6,7 @@ import argparse
 from pathlib import Path
 
 import duckdb
+
 from quantos.data import AnalyticalCatalog, DataSource, Instrument
 
 
