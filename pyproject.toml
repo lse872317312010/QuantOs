@@ -16,6 +16,7 @@ bstocks-scan = "bstocks_alpha.cli:main"
 bstocks-stream = "bstocks_alpha.streaming:main"
 bstocks-analyze = "bstocks_alpha.research:main"
 bstocks-register-data = "bstocks_alpha.data_plane:main"
+quantos-data = "quantos.data.cli:main"
 
 [project.optional-dependencies]
 engine = [
