@@ -9,7 +9,6 @@ from quantos.risk import (
     RiskEngine,
 )
 
-
 NOW = datetime(2026, 10, 4, tzinfo=UTC)
 
 
