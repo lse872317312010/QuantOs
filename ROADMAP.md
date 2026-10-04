@@ -38,7 +38,7 @@ Deliver:
 - [x] unified instrument registry;
 - [x] multi-source as-of snapshot assembly;
 - [x] adapter that registers current bStocks book/reference datasets into the generic catalog;
-- [ ] catalog-level source health command / report;
+- [x] catalog-level source health command / report;
 - [ ] second market/provider vertical beyond the current Binance bStocks domain.
 
 Exit criterion:
