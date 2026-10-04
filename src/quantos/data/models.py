@@ -83,9 +83,8 @@ class MarketEvent:
     def __post_init__(self) -> None:
         if self.ts_event.tzinfo is None or self.ts_received.tzinfo is None:
             raise ValueError("market event timestamps must be timezone-aware")
-        if self.ts_received < self.ts_event:
-            # Clock skew exists in real systems; preserve it in payload instead of silently accepting it.
-            raise ValueError("ts_received cannot be earlier than ts_event")
+        # Source clocks can be ahead of the receiver. Preserve both timestamps rather than
+        # rewriting or rejecting the event; downstream quality logic can measure clock skew.
 
 
 @dataclass(frozen=True, slots=True)
