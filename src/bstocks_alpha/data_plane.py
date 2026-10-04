@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import argparse
+
 import duckdb
 
 from quantos.data import AnalyticalCatalog, DataSource, Instrument
@@ -129,3 +131,30 @@ def register_basis_csv(
         parquet_path=reference_path,
     )
     return book_path, reference_path
+
+
+def _parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description="Register an existing bStocks basis CSV in the QuantOs analytical catalog"
+    )
+    parser.add_argument("--input", default="data/stream_basis.csv")
+    parser.add_argument("--catalog", default="data/quantos.duckdb")
+    parser.add_argument("--output-dir", default="data/catalog/bstocks")
+    return parser
+
+
+def main() -> None:
+    args = _parser().parse_args()
+    catalog = AnalyticalCatalog(args.catalog)
+    book_path, reference_path = register_basis_csv(
+        catalog,
+        args.input,
+        output_dir=args.output_dir,
+    )
+    print(f"registered {BOOK_SOURCE_ID}: {book_path}")
+    print(f"registered {REFERENCE_SOURCE_ID}: {reference_path}")
+    print(f"instruments={len(catalog.list_instruments())}")
+
+
+if __name__ == "__main__":
+    main()
