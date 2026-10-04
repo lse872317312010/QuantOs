@@ -44,15 +44,17 @@ Deliver:
 Exit criterion:
 the platform can answer point-in-time analytical queries across at least two data sources.
 
-## Phase C — evidence plane
+## Phase C — evidence plane — current priority
 
 Deliver:
-- adapt current bStocks research outputs into generic Evidence objects;
-- market regime provider;
-- liquidity provider;
-- anomaly provider;
-- strategy/research provider interface;
-- evidence provenance and confidence calibration.
+- [x] adapt current bStocks basis and research-gate outputs into generic Evidence objects;
+- [x] market regime provider;
+- [x] liquidity provider;
+- [x] anomaly provider;
+- [x] strategy/research provider interface;
+- [x] provider isolation so one failed evidence source does not erase the full view;
+- [ ] evidence provenance identifiers and persistence;
+- [ ] confidence calibration against realized outcomes.
 
 Exit criterion:
 one instrument can have several independent evidence domains displayed together.
