@@ -21,6 +21,7 @@ engine = [
   "nautilus_trader>=1,<2",
 ]
 research-core = [
+  "duckdb>=1.4,<2",
   "exchange_calendars>=4.13,<5",
   "numpy>=2,<3",
   "polars>=1.44,<2",
