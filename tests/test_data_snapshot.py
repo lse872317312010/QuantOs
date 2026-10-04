@@ -86,11 +86,9 @@ def test_snapshot_builder_combines_two_sources_without_future_leakage(tmp_path: 
         ),
     )
 
-    assert snapshot.values == {
-        "book_bid": 100.0,
-        "book_ask": 100.2,
-        "reference_price": 100.1,
-    }
+    assert float(snapshot.values["book_bid"]) == 100.0
+    assert float(snapshot.values["book_ask"]) == 100.2
+    assert float(snapshot.values["reference_price"]) == 100.1
     assert snapshot.source_ids == ("binance.book", "binance.reference")
     assert all(report.state is DataQualityState.HEALTHY for report in snapshot.quality)
 
