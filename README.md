@@ -83,6 +83,20 @@ QuantOs can now assemble several independent evidence domains for the same instr
 `EvidenceEngine` runs providers independently and records provider failures rather than discarding
 other valid evidence. This keeps the analyst view usable when one optional model or source is down.
 
+## Risk and portfolio context
+
+QuantOs now has a risk layer that is independent from signal generation:
+
+- point-in-time `PortfolioSnapshot` and `Position` analytical contracts;
+- portfolio weight and gross-exposure context;
+- data-quality risk and hard blockers;
+- liquidity spread warnings / blockers;
+- concentration warnings / blockers;
+- conservative `RiskEngine` aggregation that preserves the worst risk dimension and all blockers.
+
+This means a strong directional or strategy Evidence item can later be downgraded or blocked without
+rewriting the underlying provider.
+
 ## Current implemented vertical slice
 
 The first complete vertical slice is Binance bStocks / tokenized-equity basis research.
