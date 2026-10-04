@@ -69,6 +69,20 @@ Register an existing collection with:
 The catalog is intentionally local-first and lightweight. It can later be replaced or supplemented
 by larger infrastructure without changing the analytical contracts.
 
+## Evidence plane
+
+QuantOs can now assemble several independent evidence domains for the same instrument:
+
+- data-quality evidence derived from source freshness/completeness;
+- top-of-book liquidity evidence;
+- generic scalar regime classification;
+- generic z-score anomaly evidence;
+- bStocks book/reference microstructure evidence;
+- bStocks Research 008 promotion state as strategy evidence.
+
+`EvidenceEngine` runs providers independently and records provider failures rather than discarding
+other valid evidence. This keeps the analyst view usable when one optional model or source is down.
+
 ## Current implemented vertical slice
 
 The first complete vertical slice is Binance bStocks / tokenized-equity basis research.
@@ -108,8 +122,8 @@ These are evidence artifacts, not trading instructions.
 
 ## Platform priorities
 
-Current priority is **framework breadth before execution depth**. Phase A (platform contracts and
-boundaries) is complete; Phase B (analytical data plane) is now active.
+Current priority is **framework breadth before execution depth**. Phase A is complete; the Phase B
+data-plane foundation is operational, and Phase C evidence providers are now being layered on top.
 
 The build order is:
 
