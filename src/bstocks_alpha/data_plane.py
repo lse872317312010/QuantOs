@@ -9,7 +9,6 @@ import duckdb
 
 from quantos.data import AnalyticalCatalog, DataSource, Instrument
 
-
 BOOK_SOURCE_ID = "binance.bstocks.book"
 REFERENCE_SOURCE_ID = "binance.bstocks.reference"
 
