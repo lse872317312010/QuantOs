@@ -20,7 +20,7 @@ def _as_float(value: Any) -> float:
 def _snapshot(context: dict[str, Any]) -> MarketSnapshot:
     value = context.get("snapshot")
     if not isinstance(value, MarketSnapshot):
-        raise ValueError("context['snapshot'] must be a MarketSnapshot")
+        raise TypeError("context['snapshot'] must be a MarketSnapshot")
     return value
 
 
