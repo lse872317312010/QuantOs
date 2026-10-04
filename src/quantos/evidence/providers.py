@@ -133,3 +133,130 @@ class TopOfBookLiquidityEvidenceProvider:
                 },
             ),
         )
+
+
+class ZScoreAnomalyEvidenceProvider:
+    """Flag scalar snapshot fields whose current value is far from a supplied baseline."""
+
+    def __init__(
+        self,
+        field: str,
+        *,
+        min_abs_z: float = 2.0,
+        source: str | None = None,
+    ) -> None:
+        if min_abs_z <= 0:
+            raise ValueError("min_abs_z must be positive")
+        self.field = field
+        self.min_abs_z = min_abs_z
+        self._source = source or f"zscore-anomaly:{field}"
+
+    @property
+    def name(self) -> str:
+        return self._source
+
+    def collect_evidence(
+        self,
+        *,
+        instrument: str,
+        as_of: datetime,
+        context: dict[str, Any],
+    ) -> Sequence[Evidence]:
+        snapshot = _snapshot(context)
+        raw = snapshot.values.get(self.field)
+        if raw is None:
+            return ()
+
+        baseline = context.get("baselines", {}).get(self.field)
+        if not isinstance(baseline, dict):
+            return ()
+        mean = baseline.get("mean")
+        std = baseline.get("std")
+        if mean is None or std is None or float(std) <= 0:
+            return ()
+
+        value = _as_float(raw)
+        zscore = (value - float(mean)) / float(std)
+        if abs(zscore) < self.min_abs_z:
+            return ()
+
+        confidence = min(1.0, abs(zscore) / (self.min_abs_z * 2.0))
+        return (
+            Evidence(
+                domain=EvidenceDomain.ANOMALY,
+                source=self._source,
+                summary=f"{self.field} anomaly z={zscore:.2f}",
+                observed_at=as_of,
+                confidence=confidence,
+                directional_score=0.0,
+                metadata={
+                    "instrument": instrument,
+                    "field": self.field,
+                    "value": value,
+                    "baseline_mean": float(mean),
+                    "baseline_std": float(std),
+                    "zscore": zscore,
+                    "threshold": self.min_abs_z,
+                },
+            ),
+        )
+
+
+class ScalarRegimeEvidenceProvider:
+    """Classify one supplied scalar metric into LOW / NORMAL / HIGH regimes."""
+
+    def __init__(
+        self,
+        metric: str,
+        *,
+        low_threshold: float,
+        high_threshold: float,
+        source: str | None = None,
+    ) -> None:
+        if low_threshold >= high_threshold:
+            raise ValueError("low_threshold must be below high_threshold")
+        self.metric = metric
+        self.low_threshold = low_threshold
+        self.high_threshold = high_threshold
+        self._source = source or f"regime:{metric}"
+
+    @property
+    def name(self) -> str:
+        return self._source
+
+    def collect_evidence(
+        self,
+        *,
+        instrument: str,
+        as_of: datetime,
+        context: dict[str, Any],
+    ) -> Sequence[Evidence]:
+        metrics = context.get("metrics", {})
+        if self.metric not in metrics:
+            return ()
+        value = float(metrics[self.metric])
+        if value < self.low_threshold:
+            regime = "LOW"
+        elif value > self.high_threshold:
+            regime = "HIGH"
+        else:
+            regime = "NORMAL"
+
+        return (
+            Evidence(
+                domain=EvidenceDomain.REGIME,
+                source=self._source,
+                summary=f"{self.metric} regime is {regime}",
+                observed_at=as_of,
+                confidence=1.0,
+                directional_score=0.0,
+                metadata={
+                    "instrument": instrument,
+                    "metric": self.metric,
+                    "value": value,
+                    "regime": regime,
+                    "low_threshold": self.low_threshold,
+                    "high_threshold": self.high_threshold,
+                },
+            ),
+        )
