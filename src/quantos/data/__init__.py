@@ -1,6 +1,7 @@
 """Analytical data-plane contracts and local catalog."""
 
 from .catalog import AnalyticalCatalog
+from .health import catalog_health
 from .models import (
     DataQualityReport,
     DataQualityState,
@@ -25,4 +26,5 @@ __all__ = [
     "SnapshotBuilder",
     "SnapshotSourceQuery",
     "assess_data_quality",
+    "catalog_health",
 ]
