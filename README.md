@@ -58,7 +58,13 @@ QuantOs now includes the first platform-wide data layer:
 - registered Parquet datasets rather than a custom storage engine;
 - freshness/completeness quality reports;
 - point-in-time `query_as_of` semantics;
-- multi-source snapshot assembly with no future-data leakage.
+- multi-source snapshot assembly with no future-data leakage;
+- a bStocks adapter that splits the existing paired collection into independently registered book
+  and reference-price Parquet sources.
+
+Register an existing collection with:
+
+    bstocks-register-data --input data/stream_basis.csv
 
 The catalog is intentionally local-first and lightweight. It can later be replaced or supplemented
 by larger infrastructure without changing the analytical contracts.
