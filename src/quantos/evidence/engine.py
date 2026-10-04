@@ -49,7 +49,7 @@ class EvidenceEngine:
                         context=context,
                     )
                 )
-            except Exception as exc:  # provider boundary: preserve other evidence
+            except Exception as exc:  # noqa: BLE001 - provider boundary must isolate arbitrary provider errors
                 failures.append(EvidenceFailure(provider=provider.name, error=str(exc)))
 
         evidence.sort(key=lambda item: (item.domain.value, item.source, item.summary))
