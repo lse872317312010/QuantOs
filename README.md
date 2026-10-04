@@ -40,12 +40,34 @@ See:
 
 ## Core packages
 
-    src/quantos/             platform-wide decision/evidence/risk contracts
+    src/quantos/             platform core
+    src/quantos/data/        analytical data plane: identity, provenance, quality, as-of queries
     src/bstocks_alpha/       first market + research vertical: Binance bStocks
 
 The `bstocks_alpha` package is intentionally a **provider**, not the platform boundary. Future
 markets, research models, risk providers and portfolio providers should plug into the generic
 QuantOs contracts.
+
+## Analytical data plane
+
+QuantOs now includes the first platform-wide data layer:
+
+- canonical `Instrument`, `DataSource`, `MarketEvent` and `MarketSnapshot` contracts;
+- explicit event-time vs receive-time semantics;
+- DuckDB-backed source and instrument registry;
+- registered Parquet datasets rather than a custom storage engine;
+- freshness/completeness quality reports;
+- point-in-time `query_as_of` semantics;
+- multi-source snapshot assembly with no future-data leakage;
+- a bStocks adapter that splits the existing paired collection into independently registered book
+  and reference-price Parquet sources.
+
+Register an existing collection with:
+
+    bstocks-register-data --input data/stream_basis.csv
+
+The catalog is intentionally local-first and lightweight. It can later be replaced or supplemented
+by larger infrastructure without changing the analytical contracts.
 
 ## Current implemented vertical slice
 
@@ -86,7 +108,8 @@ These are evidence artifacts, not trading instructions.
 
 ## Platform priorities
 
-Current priority is **framework breadth before execution depth**.
+Current priority is **framework breadth before execution depth**. Phase A (platform contracts and
+boundaries) is complete; Phase B (analytical data plane) is now active.
 
 The build order is:
 

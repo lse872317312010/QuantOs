@@ -14,7 +14,7 @@ A user should be able to open QuantOs and answer:
 
 The platform should make these answers reproducible and auditable.
 
-## Phase A — platform foundation — current priority
+## Phase A — platform foundation — complete
 
 Deliver:
 - canonical decision/evidence/risk contracts;
@@ -27,15 +27,19 @@ Deliver:
 Exit criterion:
 new markets and evidence providers can plug in without changing the core contracts.
 
-## Phase B — analytical data plane
+## Phase B — analytical data plane — current priority
 
 Deliver:
-- canonical market-event schemas;
-- local Parquet + DuckDB catalog;
-- ingestion registry and health checks;
-- freshness/completeness metrics;
-- historical query API;
-- unified instrument registry.
+- [x] canonical market-event schemas;
+- [x] local Parquet + DuckDB catalog;
+- [x] source registry;
+- [x] freshness/completeness metrics;
+- [x] point-in-time historical query API;
+- [x] unified instrument registry;
+- [x] multi-source as-of snapshot assembly;
+- [x] adapter that registers current bStocks book/reference datasets into the generic catalog;
+- [x] catalog-level source health command / report;
+- [ ] second market/provider vertical beyond the current Binance bStocks domain.
 
 Exit criterion:
 the platform can answer point-in-time analytical queries across at least two data sources.

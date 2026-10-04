@@ -15,15 +15,19 @@ dependencies = [
 bstocks-scan = "bstocks_alpha.cli:main"
 bstocks-stream = "bstocks_alpha.streaming:main"
 bstocks-analyze = "bstocks_alpha.research:main"
+bstocks-register-data = "bstocks_alpha.data_plane:main"
+quantos-data = "quantos.data.cli:main"
 
 [project.optional-dependencies]
 engine = [
   "nautilus_trader>=1,<2",
 ]
 research-core = [
+  "duckdb>=1.4,<2",
   "exchange_calendars>=4.13,<5",
   "numpy>=2,<3",
   "polars>=1.44,<2",
+  "pytz>=2025.2",
   "scipy>=1.15,<2",
   "skfolio>=1,<2",
 ]
@@ -32,6 +36,7 @@ research = [
   "exchange_calendars>=4.13,<5",
   "numpy>=2,<3",
   "polars>=1.44,<2",
+  "pytz>=2025.2",
   "scipy>=1.15,<2",
   "pyarrow>=15",
   "vectorbt>=0.28",
@@ -51,3 +56,6 @@ testpaths = ["tests"]
 [tool.ruff]
 target-version = "py312"
 line-length = 100
+
+[tool.ruff.lint.isort]
+known-first-party = ["quantos", "bstocks_alpha"]
