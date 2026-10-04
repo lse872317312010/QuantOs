@@ -11,7 +11,6 @@ from quantos.data import (
     assess_data_quality,
 )
 
-
 NOW = datetime(2026, 10, 4, 0, 0, tzinfo=UTC)
 
 
@@ -31,7 +30,7 @@ def test_market_event_requires_aware_monotonic_timestamps() -> None:
             source_id="binance.book",
             instrument_id="SPYBUSDT.BINANCE",
             event_type=MarketEventType.QUOTE,
-            ts_event=datetime(2026, 10, 4),
+            ts_event=NOW.replace(tzinfo=None),
             ts_received=NOW,
         )
 
