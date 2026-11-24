@@ -18,42 +18,59 @@ T = datetime(2026, 1, 1, 12, tzinfo=UTC)
 
 
 def link(**changes):
-    values = dict(
-        evidence_id="ev-1", source_uri="https://example.org/filing",
-        source_family="issuer-filing-1", content_sha256="a" * 64,
-        published_at=T - timedelta(hours=1), first_seen_at=T,
-        recorded_at=T, kind=KnowledgeKind.OBSERVATION, role=EvidenceRole.SUPPORTS,
-    )
+    values = {
+        "evidence_id": "ev-1",
+        "source_uri": "https://example.org/filing",
+        "source_family": "issuer-filing-1",
+        "content_sha256": "a" * 64,
+        "published_at": T - timedelta(hours=1),
+        "first_seen_at": T,
+        "recorded_at": T,
+        "kind": KnowledgeKind.OBSERVATION,
+        "role": EvidenceRole.SUPPORTS,
+    }
     return EvidenceLink(**(values | changes))
 
 
 def hypothesis(**changes):
-    values = dict(
-        hypothesis_id="h-1", version=1, registered_at=T,
-        claim="A synthetic test claim", mechanism="A testable mechanism, not proven causation",
-        instruments=("TEST:ASSET",), horizon_seconds=3600,
-        signal_definition="Compare with a frozen baseline",
-        benchmark="No-change baseline", falsification_rule="No out-of-sample improvement",
-        counterarguments=("The information may already be priced in",), evidence=(link(),),
-    )
+    values = {
+        "hypothesis_id": "h-1",
+        "version": 1,
+        "registered_at": T,
+        "claim": "A synthetic test claim",
+        "mechanism": "A testable mechanism, not proven causation",
+        "instruments": ("TEST:ASSET",),
+        "horizon_seconds": 3600,
+        "signal_definition": "Compare with a frozen baseline",
+        "benchmark": "No-change baseline",
+        "falsification_rule": "No out-of-sample improvement",
+        "counterarguments": ("The information may already be priced in",),
+        "evidence": (link(),),
+    }
     return HypothesisSpec(**(values | changes))
 
 
 def forecast(**changes):
-    values = dict(
-        forecast_id="f-1", hypothesis=hypothesis(), registered_at=T,
-        target_end=T + timedelta(hours=1), event_definition="Return exceeds the fixed benchmark",
-        probability=0.6,
-    )
+    values = {
+        "forecast_id": "f-1",
+        "hypothesis": hypothesis(),
+        "registered_at": T,
+        "target_end": T + timedelta(hours=1),
+        "event_definition": "Return exceeds the fixed benchmark",
+        "probability": 0.6,
+    }
     return ForecastRegistration(**(values | changes))
 
 
 def outcome(**changes):
-    values = dict(
-        forecast_id="f-1", target_end=T + timedelta(hours=1),
-        available_at=T + timedelta(hours=1, minutes=1), occurred=False,
-        source_uri="dataset://quotes/v1", dataset_version="quotes-v1",
-    )
+    values = {
+        "forecast_id": "f-1",
+        "target_end": T + timedelta(hours=1),
+        "available_at": T + timedelta(hours=1, minutes=1),
+        "occurred": False,
+        "source_uri": "dataset://quotes/v1",
+        "dataset_version": "quotes-v1",
+    }
     return OutcomeObservation(**(values | changes))
 
 
