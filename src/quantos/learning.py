@@ -72,7 +72,7 @@ class EvidenceLink:
         if self.recorded_at < self.first_seen_at:
             raise ValueError("recorded_at cannot precede first_seen_at")
         if not isinstance(self.kind, KnowledgeKind) or not isinstance(self.role, EvidenceRole):
-            raise ValueError("kind and role must use the declared enums")
+            raise TypeError("kind and role must use the declared enums")
 
     @property
     def available_at(self) -> datetime:
@@ -141,7 +141,7 @@ class ForecastRegistration:
         _aware(self.registered_at)
         _aware(self.target_end)
         if not isinstance(self.hypothesis, HypothesisSpec):
-            raise ValueError("hypothesis must be a HypothesisSpec")
+            raise TypeError("hypothesis must be a HypothesisSpec")
         if self.registered_at < self.hypothesis.registered_at:
             raise ValueError("forecast cannot precede its hypothesis")
         if (self.target_end - self.registered_at).total_seconds() != self.hypothesis.horizon_seconds:
