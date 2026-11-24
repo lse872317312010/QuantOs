@@ -11,7 +11,6 @@ from quantos.contracts import (
 )
 from quantos.decision import DecisionJournal, RuleBasedDecisionSynthesizer, SynthesisConfig
 
-
 NOW = datetime(2026, 11, 24, tzinfo=UTC)
 
 
