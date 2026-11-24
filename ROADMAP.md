@@ -91,17 +91,21 @@ Deliver:
 Exit criterion:
 the system can produce a ranked, explainable decision slate without placing an order.
 
-## Phase F — analyst workspace
+## Phase F — analyst workspace — current priority
 
 Deliver:
-- dashboard / API;
-- market overview;
-- candidate detail;
-- evidence tree;
-- risk dashboard;
-- research explorer;
-- alerts;
-- decision history.
+- [x] multi-instrument analyst review session orchestration;
+- [x] provider-failure visibility;
+- [x] ranked human-review decision slate;
+- [x] Markdown analyst brief;
+- [x] decision journal integration;
+- [ ] dashboard / API;
+- [ ] market overview;
+- [ ] interactive candidate detail / evidence tree;
+- [ ] risk dashboard;
+- [ ] research explorer;
+- [ ] alerts delivery;
+- [ ] decision-history browser.
 
 Exit criterion:
 daily market review can be performed primarily inside QuantOs.
