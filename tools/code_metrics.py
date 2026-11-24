@@ -1,17 +1,16 @@
-#!/usr/bin/env python3
 """Git-tracked first-party source metrics: cloc LOC, language, tests, 7-day net change.
 
 Runs offline. Counts source files on HEAD and the last commit before the weekly cutoff.
 No metrics leave this repository; GitHub Actions artifacts belong to the caller repo.
 """
 import argparse
-from datetime import datetime, timedelta, timezone
 import json
 import os
-from pathlib import Path, PurePosixPath
 import re
 import subprocess
 import tempfile
+from datetime import UTC, datetime, timedelta
+from pathlib import Path, PurePosixPath
 
 EXT = {
     ".py", ".pyi", ".rs", ".c", ".h", ".cc", ".cpp", ".cxx", ".hpp",
@@ -63,7 +62,7 @@ def test_file(path):
     name = parts[-1].lower()
     stem = PurePosixPath(name).stem
     return bool(
-        set(p.lower() for p in parts[:-1]).intersection(TEST_DIR)
+        {p.lower() for p in parts[:-1]}.intersection(TEST_DIR)
         or name.startswith(("test_", "spec_"))
         or stem.endswith(("_test", "_tests", "_spec"))
         or re.search(r"(?:^|[._-])(?:test|spec)(?:[._-]|$)", name)
@@ -158,8 +157,10 @@ def markdown(report):
         f"- UTC: {report['generated_at_utc']}",
         f"- 7-day baseline commit: {report['baseline_commit'] or 'unavailable'}",
         f"- Source files: **{total['files']:,}**",
-        f"- Code: **{total['code']:,} LOC**; comments: **{total['comment']:,}**; "
-        f"blank: **{total['blank']:,}**",
+        (
+            f"- Code: **{total['code']:,} LOC**; comments: **{total['comment']:,}**; "
+            f"blank: **{total['blank']:,}**"
+        ),
         f"- 7-day net change: **{change(None)} code LOC**", "",
         "| Scope | Files | Code LOC | Comment | Blank | 7-day net code LOC |",
         "|---|---:|---:|---:|---:|---:|",
@@ -178,10 +179,12 @@ def markdown(report):
                    f"{item['comment']} | {item['blank']} |")
     out += [
         "",
-        "Scope: tracked source extensions only; known vendor/build/generated folders "
-        "excluded. Test classification is path-based and does not separate inline tests. "
-        "Baseline is the last commit before the UTC seven-day cutoff. "
-        "Net LOC is a snapshot difference, **not** churn or author productivity.",
+        (
+            "Scope: tracked source extensions only; known vendor/build/generated folders "
+            "excluded. Test classification is path-based and does not separate inline tests. "
+            "Baseline is the last commit before the UTC seven-day cutoff. "
+            "Net LOC is a snapshot difference, **not** churn or author productivity."
+        ),
     ]
     return "\n".join(out) + "\n"
 
@@ -191,7 +194,7 @@ def main():
     parser.add_argument("--output", default="outputs/code-metrics")
     args = parser.parse_args()
     root = Path(git(Path.cwd(), "rev-parse", "--show-toplevel")).resolve()
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     cutoff = now - timedelta(days=7)
     base = git(root, "rev-list", "-1",
                "--before=" + cutoff.strftime("%Y-%m-%dT%H:%M:%SZ"), "HEAD")
