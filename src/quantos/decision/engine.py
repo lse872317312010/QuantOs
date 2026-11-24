@@ -218,9 +218,11 @@ class RuleBasedDecisionSynthesizer:
         else:
             supporting = [item for item in evidence if item.directional_score == 0]
             contradicting = []
-        key = lambda item: (-item.confidence, item.domain.value, item.source, item.summary)
-        supporting.sort(key=key)
-        contradicting.sort(key=key)
+        def evidence_sort_key(item: Evidence) -> tuple[float, str, str, str]:
+            return (-item.confidence, item.domain.value, item.source, item.summary)
+
+        supporting.sort(key=evidence_sort_key)
+        contradicting.sort(key=evidence_sort_key)
         return supporting, contradicting
 
     def _stance(self, score: float) -> DecisionStance:
