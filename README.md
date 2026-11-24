@@ -1,5 +1,11 @@
 # QuantOs
 
+## 项目宪法与开发入口
+
+[CONSTITUTION.md](CONSTITUTION.md) 是仓库内部最高项目规范；分支提案须经所有者明确批准并合并默认分支才生效。开发前阅读 [AGENTS.md](AGENTS.md) 与 [CONTRIBUTING.md](CONTRIBUTING.md)，按 [ROADMAP.md](ROADMAP.md) 的验收顺序推进。
+
+主线是 **证据 → 可证伪假设 → 事前预测 → 验证 → 案例记忆 → 人工判断**。不重造通用基础设施，不默认自动交易，不将 CI 通过或历史曲线视为稳定收益证明。宪法和 PR 模板不等于已经启用 GitHub 服务端保护，也不代表实时服务已经运行。
+
 QuantOs is a **human-in-the-loop market analysis and decision-support platform**.
 
 The system is designed to help a person answer:
@@ -113,6 +119,8 @@ It currently provides:
 8. machine-readable research promotion states.
 
 This subsystem produces research evidence that will be adapted into the generic decision platform.
+These are implemented research capabilities, not evidence of a continuously deployed service or
+validated investment performance. See the acceptance gates in `ROADMAP.md`.
 
 ### Quick research run
 
@@ -136,22 +144,14 @@ These are evidence artifacts, not trading instructions.
 
 ## Platform priorities
 
-Current priority is **framework breadth before execution depth**. Phase A is complete; the Phase B
-data-plane foundation is operational, and Phase C evidence providers are now being layered on top.
+优先完成可信的持续学习闭环，而不是同时扩大框架、市场或执行深度。复用现有平台，按 `ROADMAP.md` 的 P0–P6 顺序推进：正确性 → 一类获准资料 → 时序记忆 → 研究与登记 → 可复现验证 → 到期案例 → 有证据的扩展。
 
-The build order is:
-
-1. core contracts and architecture;
-2. analytical data plane and provenance;
-3. multi-domain evidence providers;
-4. risk and portfolio context;
-5. candidate synthesis / ranking / explanation;
-6. analyst workspace, alerts and decision history;
-7. optional action adapters.
-
-See `ROADMAP.md` for detailed exit criteria.
+连续学习协议仍须按其 PR 状态审查；文档、类型和测试不能替代实际数据接入、服务部署与端到端观察。当前架构层与已实现能力保留，不因路线调整重建第二个平台。
 
 ## Design rules
+
+[CONSTITUTION.md](CONSTITUTION.md) governs these rules; implementation details may evolve through
+reviewed ADRs without silently weakening the constitution.
 
 - upstream-first: do not rebuild mature infrastructure;
 - point-in-time correctness: no future-data leakage;
@@ -187,6 +187,13 @@ Python 3.12+ is recommended.
 The repository includes a Codespaces devcontainer.
 
 ## Documentation
+
+Governance:
+
+- [项目宪法](CONSTITUTION.md)
+- [AI 开发规则](AGENTS.md)
+- [贡献与验收](CONTRIBUTING.md)
+- [PR 审查模板](.github/PULL_REQUEST_TEMPLATE.md)
 
 Architecture:
 
