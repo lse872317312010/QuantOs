@@ -8,7 +8,6 @@ from quantos.evidence import EvidenceEngine
 from quantos.risk import RiskEngine
 from quantos.workspace import AnalystReviewEngine, render_markdown
 
-
 NOW = datetime(2026, 11, 24, tzinfo=UTC)
 
 
