@@ -95,12 +95,22 @@ class DecisionCandidate:
     risk: RiskAssessment
     as_of: datetime
     tags: tuple[str, ...] = ()
+    decision_score: float = 0.0
+    priority_score: float = 0.0
+    supporting_evidence: tuple[str, ...] = ()
+    contradicting_evidence: tuple[str, ...] = ()
+    invalidation_conditions: tuple[str, ...] = ()
+    alternatives: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if not self.instrument:
             raise ValueError("instrument is required")
         if not 0.0 <= self.confidence <= 1.0:
             raise ValueError("confidence must be between 0 and 1")
+        if not -1.0 <= self.decision_score <= 1.0:
+            raise ValueError("decision_score must be between -1 and 1")
+        if not 0.0 <= self.priority_score <= 1.0:
+            raise ValueError("priority_score must be between 0 and 1")
         if self.risk.blockers and self.state is DecisionState.CANDIDATE:
             raise ValueError("blocked candidates cannot be in CANDIDATE state")
 

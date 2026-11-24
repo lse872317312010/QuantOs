@@ -27,3 +27,11 @@ __all__ += [
     "EvidenceProvider",
     "RiskProvider",
 ]
+
+from .decision import DecisionJournal, RuleBasedDecisionSynthesizer, SynthesisConfig
+
+__all__ += [
+    "DecisionJournal",
+    "RuleBasedDecisionSynthesizer",
+    "SynthesisConfig",
+]

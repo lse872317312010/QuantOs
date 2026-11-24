@@ -75,15 +75,18 @@ Deliver:
 Exit criterion:
 a strong strategy signal can be downgraded or blocked for explicit portfolio/risk reasons.
 
-## Phase E — decision synthesis
+## Phase E — decision synthesis — current priority
 
 Deliver:
-- candidate aggregation and ranking;
-- supporting vs contradicting evidence;
-- confidence and uncertainty display;
-- invalidation conditions;
-- alternatives;
-- decision snapshots and journal.
+- [x] candidate aggregation and ranking;
+- [x] supporting vs contradicting evidence;
+- [x] confidence and uncertainty display;
+- [x] risk-veto behavior;
+- [x] invalidation conditions;
+- [x] alternatives;
+- [x] decision snapshots and append-only journal;
+- [ ] realized-outcome linkage for decision calibration;
+- [ ] user-configurable synthesis profiles.
 
 Exit criterion:
 the system can produce a ranked, explainable decision slate without placing an order.
