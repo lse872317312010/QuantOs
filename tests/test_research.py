@@ -148,3 +148,44 @@ def test_analysis_excludes_a_delayed_exit_from_split_statistics(tmp_path) -> Non
     assert thresholds["train_matched_trades"] == thresholds["test_matched_trades"] == 1
     gate = pl.read_csv(target / "promotion_gate.csv").row(0, named=True)
     assert datetime.fromisoformat(gate["available_at"]) >= midnight + timedelta(seconds=1)
+
+
+@pytest.mark.parametrize("conflicting", [False, True])
+def test_forward_outcomes_rejects_ambiguous_same_symbol_timestamp(conflicting):
+    start = datetime(2026, 9, 30, 10, 0, tzinfo=NY)
+    exit_row = raw_row(start + timedelta(seconds=1), bid=101.0, ask=102.0)
+    duplicate = dict(exit_row)
+    if conflicting:
+        duplicate.update(bid=95.0, ask=96.0, mid=95.5)
+    for pair in ((exit_row, duplicate), (duplicate, exit_row)):
+        signals = prepare_signals(pl.DataFrame([raw_row(start), *pair]))
+        with pytest.raises(ValueError, match="Duplicate .* research keys"):
+            forward_outcomes(signals, horizons_s=(1,), max_match_lag_ms=0)
+
+
+def test_forward_outcomes_matches_only_same_symbol_with_shuffled_input():
+    start = datetime(2026, 9, 30, 10, 0, tzinfo=NY)
+    t0 = epoch_ms(start)
+    rows = [
+        raw_row(start, bid=99.0, ask=100.0),
+        raw_row(start + timedelta(seconds=1), bid=101.0, ask=102.0),
+        dict(raw_row(start, bid=199.0, ask=200.0), symbol="NVDABUSDT"),
+        dict(
+            raw_row(start + timedelta(milliseconds=1100), bid=196.0, ask=197.0),
+            symbol="NVDABUSDT",
+        ),
+    ]
+    for ordered in (rows, [rows[i] for i in (3, 1, 2, 0)]):
+        signals = prepare_signals(pl.DataFrame(ordered))
+        result = forward_outcomes(signals, horizons_s=(1,), max_match_lag_ms=100)
+        first = {
+            row["symbol"]: row
+            for row in result.filter(pl.col("observed_timestamp_ms") == t0).to_dicts()
+        }
+        assert first["SPYBUSDT"]["_future_timestamp_ms"] == t0 + 1000
+        assert first["SPYBUSDT"]["forward_trade_return_bps"] == pytest.approx(100.0)
+        assert first["NVDABUSDT"]["_future_timestamp_ms"] == t0 + 1100
+        assert first["NVDABUSDT"]["forward_trade_return_bps"] == pytest.approx(-200.0)
+        unmatched = result.filter(pl.col("observed_timestamp_ms") != t0)
+        assert unmatched["_future_timestamp_ms"].null_count() == 2
+        assert unmatched["forward_trade_return_bps"].null_count() == 2
