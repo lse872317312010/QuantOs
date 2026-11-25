@@ -26,6 +26,16 @@ def append_snapshot_csv(
     if exists:
         with target.open("r", newline="", encoding="utf-8") as handle:
             existing_header = next(csv.reader(handle), [])
+        # Older stream files can retain their schema when the book update ID
+        # identifies a completed pair and its sample time is the availability.
+        legacy_header = [name for name in fieldnames if name != "available_timestamp_ms"]
+        if existing_header == legacy_header and all(
+            row["book_update_id"] is not None and row["available_timestamp_ms"] == row["observed_timestamp_ms"]
+            for row in rows
+        ):
+            fieldnames = legacy_header
+            for row in rows:
+                del row["available_timestamp_ms"]
         if existing_header != fieldnames:
             raise ValueError(
                 f"CSV schema mismatch for {target}; use a new file or migrate the existing dataset"

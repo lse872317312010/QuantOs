@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import argparse
+from hashlib import file_digest
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 import duckdb
 
@@ -11,6 +13,16 @@ from quantos.data import AnalyticalCatalog, DataSource, Instrument
 
 BOOK_SOURCE_ID = "binance.bstocks.book"
 REFERENCE_SOURCE_ID = "binance.bstocks.reference"
+
+
+def _publish_parquet(staged: Path, target: Path) -> Path:
+    """Expose a completed file under its content digest. Identical retries reuse the path."""
+    with staged.open("rb") as handle:
+        digest = file_digest(handle, "sha256").hexdigest()
+    published = target / f"{staged.stem}-{digest}.parquet"
+    if not published.exists():
+        staged.replace(published)
+    return published
 
 
 def register_basis_csv(
@@ -26,29 +38,43 @@ def register_basis_csv(
 
     target = Path(output_dir)
     target.mkdir(parents=True, exist_ok=True)
-    book_path = target / "book.parquet"
-    reference_path = target / "reference.parquet"
+    with TemporaryDirectory(dir=target) as staging, duckdb.connect() as con:
+        book_path = Path(staging) / "book.parquet"
+        reference_path = Path(staging) / "reference.parquet"
 
-    con = duckdb.connect()
-    try:
-        escaped_source = str(source).replace("'", "''")
+        columns = con.read_csv(str(source), header=True).columns
+        # The original REST collector stamped the batch before fetching each
+        # reference. Its precise availability cannot be recovered from the file.
+        legacy_sample = "CASE WHEN book_update_id IS NOT NULL THEN observed_timestamp_ms END"
+        available_ms = (
+            f"COALESCE(CAST(available_timestamp_ms AS BIGINT), {legacy_sample})"
+            if "available_timestamp_ms" in columns else legacy_sample
+        )
         con.execute(
             f"""
-            CREATE TEMP VIEW basis AS
+            CREATE TEMP TABLE basis AS
             SELECT
                 *,
                 symbol || '.BINANCE' AS instrument_id,
-                to_timestamp(observed_timestamp_ms / 1000.0) AS ts_observed,
+                row_number() OVER () AS capture_sequence,
+                to_timestamp((observed_timestamp_ms - book_age_ms) / 1000.0) AS ts_book,
+                {available_ms} AS known_ms,
+                CASE WHEN known_ms IS NOT NULL THEN
+                    to_timestamp(greatest(known_ms, observed_timestamp_ms) / 1000.0)
+                END AS ts_available,
                 to_timestamp(reference_timestamp_ms / 1000.0) AS ts_reference
-            FROM read_csv_auto('{escaped_source}', header = true)
-            """
+            FROM read_csv_auto(?, header = true)
+            """,
+            [str(source)],
         )
         con.execute(
             """
             COPY (
                 SELECT
                     instrument_id,
-                    ts_observed AS ts_event,
+                    ts_book AS ts_event,
+                    ts_available,
+                    capture_sequence,
                     bid,
                     ask,
                     mid,
@@ -56,7 +82,7 @@ def register_basis_csv(
                     book_age_ms,
                     book_update_id
                 FROM basis
-                ORDER BY ts_observed, instrument_id
+                ORDER BY ts_book, instrument_id, capture_sequence
             ) TO ? (FORMAT PARQUET)
             """,
             [str(book_path)],
@@ -67,12 +93,14 @@ def register_basis_csv(
                 SELECT
                     instrument_id,
                     ts_reference AS ts_event,
+                    ts_available,
+                    capture_sequence,
                     reference_price,
                     reference_lag_ms,
                     reference_receive_age_ms,
                     external_calculation_id
                 FROM basis
-                ORDER BY ts_reference, instrument_id
+                ORDER BY ts_reference, instrument_id, capture_sequence
             ) TO ? (FORMAT PARQUET)
             """,
             [str(reference_path)],
@@ -88,46 +116,53 @@ def register_basis_csv(
             ORDER BY instrument_id
             """
         ).fetchall()
-    finally:
-        con.close()
 
-    for instrument_id, symbol, base_asset, underlying in instruments:
-        catalog.register_instrument(
-            Instrument(
-                instrument_id=instrument_id,
-                symbol=symbol,
-                raw_symbol=symbol,
-                venue="BINANCE",
-                asset_class="TOKENIZED_EQUITY",
-                base_currency=base_asset,
-                quote_currency="USDT",
-                underlying_id=underlying,
-                metadata={"provider_domain": "bstocks"},
+        book_path = _publish_parquet(book_path, target)
+        reference_path = _publish_parquet(reference_path, target)
+
+    with catalog.transaction() as connection:
+        for instrument_id, symbol, base_asset, underlying in instruments:
+            catalog.register_instrument(
+                Instrument(
+                    instrument_id=instrument_id,
+                    symbol=symbol,
+                    raw_symbol=symbol,
+                    venue="BINANCE",
+                    asset_class="TOKENIZED_EQUITY",
+                    base_currency=base_asset,
+                    quote_currency="USDT",
+                    underlying_id=underlying,
+                    metadata={"provider_domain": "bstocks"},
+                ),
+                connection=connection,
             )
-        )
 
-    catalog.register_source(
-        DataSource(
-            source_id=BOOK_SOURCE_ID,
-            provider="binance",
-            dataset="bstocks_book",
-            source_type="parquet",
-            expected_interval_s=1.0,
-            description="Best bid/ask observations extracted from paired bStocks collection.",
-        ),
-        parquet_path=book_path,
-    )
-    catalog.register_source(
-        DataSource(
-            source_id=REFERENCE_SOURCE_ID,
-            provider="binance",
-            dataset="bstocks_reference_price",
-            source_type="parquet",
-            expected_interval_s=1.0,
-            description="Reference-price observations extracted from paired bStocks collection.",
-        ),
-        parquet_path=reference_path,
-    )
+        catalog.register_source(
+            DataSource(
+                source_id=BOOK_SOURCE_ID,
+                provider="binance",
+                dataset="bstocks_book",
+                source_type="parquet",
+                expected_interval_s=1.0,
+                description="Best bid/ask observations extracted from paired bStocks collection.",
+                metadata={"availability_column": "ts_available", "sequence_column": "capture_sequence"},
+            ),
+            parquet_path=book_path.resolve(),
+            connection=connection,
+        )
+        catalog.register_source(
+            DataSource(
+                source_id=REFERENCE_SOURCE_ID,
+                provider="binance",
+                dataset="bstocks_reference_price",
+                source_type="parquet",
+                expected_interval_s=1.0,
+                description="Reference-price observations extracted from paired bStocks collection.",
+                metadata={"availability_column": "ts_available", "sequence_column": "capture_sequence"},
+            ),
+            parquet_path=reference_path.resolve(),
+            connection=connection,
+        )
     return book_path, reference_path
 
 

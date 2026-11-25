@@ -16,13 +16,23 @@ The model is additive in basis points:
     total_cost_bps =
         2 * taker_fee_bps_per_side
         + 2 * slippage_bps_per_side
-        + short_borrow_bps_per_day * horizon_seconds / 86400  # SHORT only
+        + short_borrow_bps_per_day * matched_holding_ms / 86400000  # SHORT only
 
     net_forward_trade_return_bps =
         gross_forward_trade_return_bps - total_cost_bps
 
 Spread is not deducted again: the gross forward return already enters at the current ask for LONG
 or current bid for SHORT and exits at the future opposite side of the book.
+
+Financing runs from the entry observation to the matched exit quote. A one-second target
+filled 1.5 seconds late incurs 2.5 seconds of modeled short borrow. Older labels can recover
+this duration from their recorded match lag. A missing or inconsistent duration leaves
+positive-rate short costs and net returns null. Unmatched labels stay in coverage counts with
+null total cost. A matched long or a zero borrow rate incurs zero borrow.
+
+The run configuration records `short_borrow_time_basis`. Preserve previous outputs that used
+the requested horizon. Recompute affected short-cost comparisons from the original observations
+in a separate output directory before using them for validation.
 
 The default taker fee assumption is 10 bps per side. This corresponds to the Binance regular-user
 standard Spot taker rate of 0.100% observed on the Binance fee page on 2026-09-30. Actual fees can
@@ -47,8 +57,13 @@ Example:
 Rows are never randomly split. Each observation receives market_date in America/New_York. Unique
 market dates are sorted and the earliest 70% are TRAIN while the latest 30% are TEST by default.
 
-This keeps all observations from a market date on one side of the split and reduces same-day
-leakage.
+For each matched return, the actual exit observation is stored in `_future_timestamp_ms`.
+TRAIN requires that exit to precede midnight in America/New_York on the first TEST date.
+An exit exactly at midnight is excluded even if the nominal target preceded midnight.
+The full outcome stays in Parquet with `sample=PURGED`. Holdout statistics, daily estimates,
+bootstrap and threshold selection exclude those rows. Unmatched observations retain their
+sample and a null return for coverage. The full-history forward summary is exploratory and
+includes all matches.
 
 If fewer than two market dates are present, rows are labeled UNSPLIT instead of pretending that an
 out-of-sample test exists.
@@ -74,8 +89,12 @@ Additional outputs:
     data/research/holdout_summary.csv
     data/research/analysis_config.json
 
-analysis_config.json records all cost assumptions and the train/test cutoff date so a result can
-be reproduced.
+analysis_config.json records the cost assumptions, cutoff date, endpoint column and number of
+purged labels. To review an older run, preserve its artifacts and rerun `bstocks-analyze` on
+the original collection into a fresh output directory. Compare the holdout, daily/bootstrap,
+threshold, walk-forward and promotion outputs before using them. A current promotion CSV
+records its availability in UTC. The evidence provider rejects undated older gates and omits a
+gate from reviews preceding its availability. Missing original inputs leave the run unverified.
 
 ## Interpretation
 

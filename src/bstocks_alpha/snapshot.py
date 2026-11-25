@@ -36,6 +36,7 @@ class BasisObservation:
     book_age_ms: int = 0
     reference_receive_age_ms: int = 0
     book_update_id: int | None = None
+    available_timestamp_ms: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -97,6 +98,7 @@ def _observation(
         book_age_ms=book_age_ms,
         reference_receive_age_ms=reference_receive_age_ms,
         book_update_id=book_update_id,
+        available_timestamp_ms=observed_timestamp_ms,
     )
 
 
@@ -113,9 +115,7 @@ def collect_basis_snapshot(
         if item.get("symbol") in wanted
     }
 
-    observed = datetime.now(UTC)
-    observed_at_utc = observed.isoformat()
-    observed_timestamp_ms = int(observed.timestamp() * 1000)
+    book_received_ms = int(datetime.now(UTC).timestamp() * 1000)
     observations: list[BasisObservation] = []
     failures: list[SnapshotFailure] = []
 
@@ -127,13 +127,18 @@ def collect_basis_snapshot(
 
         try:
             ref = reference_price(instrument.symbol, client=client)
+            observed = datetime.now(UTC)
+            observed_timestamp_ms = int(observed.timestamp() * 1000)
+            if observed_timestamp_ms < book_received_ms:
+                raise ValueError("receiver clock moved backwards during snapshot")
             observations.append(
                 _observation(
                     instrument,
                     ticker,
                     ref,
-                    observed_at_utc=observed_at_utc,
+                    observed_at_utc=observed.isoformat(),
                     observed_timestamp_ms=observed_timestamp_ms,
+                    book_age_ms=observed_timestamp_ms - book_received_ms,
                 )
             )
         except (BinanceError, KeyError, TypeError, ValueError) as exc:
