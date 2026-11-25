@@ -45,6 +45,10 @@ The fold file contains the complete selection and OOS result for every threshold
 aggregates rows whose `stable_train_candidate` flag was true before the corresponding test window
 was observed.
 
+`train_selected_folds` retains all training selections. The promotion input `selected_folds`
+counts only selections with at least one matched TEST date and a finite mean TEST return.
+A fold whose test labels are all missing or purged contributes zero completed evaluations.
+
 ## Interpretation
 
 A stronger candidate should be repeatedly selected in training windows and retain positive

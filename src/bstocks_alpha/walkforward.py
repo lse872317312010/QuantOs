@@ -124,6 +124,7 @@ def summarize_walk_forward(report: pl.DataFrame) -> pl.DataFrame:
     if selected.is_empty():
         return pl.DataFrame()
 
+    evaluated = (pl.col("test_market_dates") > 0) & pl.col("test_mean_daily_net_bps").is_finite()
     return (
         selected.group_by(
             "horizon_s",
@@ -132,7 +133,8 @@ def summarize_walk_forward(report: pl.DataFrame) -> pl.DataFrame:
             "threshold_bps",
         )
         .agg(
-            pl.col("fold").n_unique().alias("selected_folds"),
+            pl.col("fold").n_unique().alias("train_selected_folds"),
+            pl.col("fold").filter(evaluated).n_unique().alias("selected_folds"),
             pl.col("test_market_dates").sum().alias("test_market_dates"),
             pl.col("test_mean_daily_net_bps")
             .drop_nulls()

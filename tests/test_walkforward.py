@@ -4,6 +4,7 @@ from zoneinfo import ZoneInfo
 import polars as pl
 import pytest
 
+from bstocks_alpha.promotion import research_promotion_gate
 from bstocks_alpha.walkforward import summarize_walk_forward, walk_forward_threshold_report
 
 
@@ -128,3 +129,27 @@ def test_walk_forward_summary_uses_only_train_selected_candidates() -> None:
     assert summary["selected_folds"] == 2
     assert summary["mean_oos_daily_net_bps"] == pytest.approx(1.0)
     assert summary["positive_oos_fold_rate"] == pytest.approx(0.5)
+
+
+@pytest.mark.parametrize("completed", [1, 3])
+def test_only_selected_folds_with_realized_test_labels_count_toward_promotion(completed):
+    cell = {
+        "horizon_s": 5, "market_session": "REGULAR", "preferred_side": "LONG", "threshold_bps": 5.0,
+    }
+    folds = pl.DataFrame([
+        {
+            **cell, "fold": i, "stable_train_candidate": True,
+            "test_market_dates": 10 if i < completed else 0,
+            "test_mean_daily_net_bps": 4.0 if i < completed else None,
+        }
+        for i in range(3)
+    ])
+    summary = summarize_walk_forward(folds)
+    assert summary["train_selected_folds"].item() == 3
+    assert summary["selected_folds"].item() == completed
+    training = pl.DataFrame([{
+        **cell, "stable_train_candidate": True, "train_market_dates": 20,
+        "train_mean_daily_net_bps": 4.0, "train_fdr_q_value": 0.01,
+    }])
+    state = research_promotion_gate(training, summary)["research_state"].item()
+    assert state == ("RESEARCH_CANDIDATE" if completed == 3 else "INSUFFICIENT_OOS_HISTORY")
