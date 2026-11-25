@@ -134,6 +134,29 @@ Important outputs include:
 
 These are evidence artifacts, not trading instructions.
 
+### Review archived runs for duplicate quote keys
+
+With the `research-core` extra installed, point the audit at one or more existing
+`bstocks-analyze` output directories. Save the JSON in a separate location.
+
+    bstocks-audit-quote-keys archive/run-a archive/run-b > quote-audit.json
+
+Each directory is examined independently in argument order. The command reads its
+`signals.parquet`, the rows retained before horizon expansion, and identifies repeated
+`(symbol, observed_timestamp_ms)` pairs. Repeating a key three times counts as one
+duplicate key, three participating rows and two surplus rows. Two symbols can share a
+millisecond. For each repeated key the command compares bid, ask, mid and basis in bps.
+Two distinct complete observations establish a conflict. Agreement requires complete
+finite values in every row. The remaining groups have unknown quote differences.
+
+Each readable snapshot is identified by its SHA-256. Missing, empty, mislabeled, corrupt
+or changing input produces an unverified result. The JSON contains aggregate counts and
+file hashes. To match a batch to its source, retain the input directory order. Exit 0
+means every supplied table has unique keys, 1 means duplicates were found and every
+table was readable and verifiable, and 2 means at least one table could not be verified.
+The report describes the retained rows only. Measuring changes to old returns requires
+the original observations, historical settings and a separately versioned replay.
+
 ## Platform priorities
 
 Current priority is **framework breadth before execution depth**. Phase A is complete; the Phase B
