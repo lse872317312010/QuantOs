@@ -25,6 +25,21 @@ Evidence and risk provider failures are preserved in the session. One provider f
 erase the rest of the review. The final brief exposes those failures explicitly so missing analysis
 cannot silently look like neutral evidence.
 
+The optional `required_providers` argument to `EvidenceEngine` names the evidence sources
+needed for a particular review. A required source that fails, returns nothing or supplies
+evidence available after the cutoff blocks its instrument. An optional source failure appears
+in the brief and valid evidence from other sources remains usable. Each provider contributes
+its batch only after every item passes the cutoff. Configured risk checks are mandatory.
+
+The decision journal records UTC review and evidence times. An evidence producer can provide
+`available_at` for delayed receipt or revision. For a directly observed input, the default is
+`observed_at`. Snapshot-backed evidence retains its source observation time. An event announced
+for a future date can be evidence now when its observation and availability are known now.
+
+Historical journals keep their original contents. A legacy candidate whose source availability
+or completed risk checks cannot be established remains unverified. To compare a reconstructed
+review, use the same inputs and cutoff, write to a new journal, and retain both versions.
+
 ## Output
 
 The Markdown renderer contains:

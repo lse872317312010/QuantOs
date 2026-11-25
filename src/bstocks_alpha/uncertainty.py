@@ -34,7 +34,9 @@ def daily_net_summary(outcomes: pl.DataFrame) -> pl.DataFrame:
         raise ValueError(f"Daily summary missing required columns: {missing}")
 
     return (
-        outcomes.filter(pl.col("net_forward_trade_return_bps").is_not_null())
+        outcomes.filter(
+            (pl.col("sample") != "PURGED") & pl.col("net_forward_trade_return_bps").is_not_null()
+        )
         .group_by(
             "sample",
             "market_date",

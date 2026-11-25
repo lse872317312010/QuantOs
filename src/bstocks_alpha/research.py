@@ -14,7 +14,13 @@ import polars as pl
 from .promotion import research_promotion_gate
 from .robustness import threshold_stability_report
 from .uncertainty import daily_net_summary, date_cluster_bootstrap
-from .validation import CostModel, apply_cost_model, chronological_holdout, summarize_holdout
+from .validation import (
+    MATCHED_EXIT_MS,
+    CostModel,
+    apply_cost_model,
+    chronological_holdout,
+    summarize_holdout,
+)
 from .walkforward import summarize_walk_forward, walk_forward_threshold_report
 
 NY = ZoneInfo("America/New_York")
@@ -100,10 +106,8 @@ def label_us_equity_sessions(frame: pl.DataFrame) -> pl.DataFrame:
         .alias("market_date")
     )
 
-    minimum_ms = int(frame["observed_timestamp_ms"].min())
-    maximum_ms = int(frame["observed_timestamp_ms"].max())
-    start = datetime.fromtimestamp(minimum_ms / 1000, tz=UTC).date()
-    end = datetime.fromtimestamp(maximum_ms / 1000, tz=UTC).date()
+    start = date.fromisoformat(frame["market_date"].min())
+    end = date.fromisoformat(frame["market_date"].max())
     windows = _session_windows(start, end).sort("pre_open_ms")
 
     joined = frame.sort("observed_timestamp_ms").join_asof(
@@ -165,6 +169,17 @@ def _freshness_bucket() -> pl.Expr:
     )
 
 
+def _known_at_sample(frame: pl.DataFrame) -> pl.Expr:
+    observed = pl.col("observed_timestamp_ms")
+    legacy = pl.lit(None, dtype=pl.Int64)
+    if "book_update_id" in frame.columns:
+        legacy = pl.when(pl.col("book_update_id").is_not_null()).then(observed)
+    available = legacy
+    if "available_timestamp_ms" in frame.columns:
+        available = pl.coalesce(pl.col("available_timestamp_ms").cast(pl.Int64), legacy)
+    return (available <= observed).fill_null(False)
+
+
 def prepare_signals(
     frame: pl.DataFrame,
     *,
@@ -175,7 +190,11 @@ def prepare_signals(
     _require_columns(frame)
 
     cleaned = frame.filter(
-        (pl.col("observed_timestamp_ms") > 0)
+        _known_at_sample(frame)
+        & (pl.col("observed_timestamp_ms") > 0)
+        & (pl.col("reference_lag_ms") >= 0)
+        & (pl.col("book_age_ms") >= 0)
+        & (pl.col("reference_receive_age_ms") >= 0)
         & (pl.col("bid") > 0)
         & (pl.col("ask") >= pl.col("bid"))
         & (pl.col("mid") > 0)
@@ -210,6 +229,7 @@ def forward_outcomes(
     if signals.is_empty():
         return signals.with_columns(
             pl.lit(None, dtype=pl.Int64).alias("horizon_s"),
+            pl.lit(None, dtype=pl.Int64).alias(MATCHED_EXIT_MS),
             pl.lit(None, dtype=pl.Float64).alias("forward_trade_return_bps"),
         ).head(0)
 
@@ -224,18 +244,17 @@ def forward_outcomes(
     outcomes: list[pl.DataFrame] = []
 
     for horizon_s in horizons_s:
-        future_timestamp = "_future_timestamp_ms"
         future_frame = (
             future.rename(
                 {
-                    "observed_timestamp_ms": future_timestamp,
+                    "observed_timestamp_ms": MATCHED_EXIT_MS,
                     "bid": "_future_bid",
                     "ask": "_future_ask",
                     "mid": "_future_mid",
                     "basis_bps": "_future_basis_bps",
                 }
             )
-            .sort("symbol", future_timestamp)
+            .sort("symbol", MATCHED_EXIT_MS)
         )
 
         joined = (
@@ -246,14 +265,14 @@ def forward_outcomes(
             .join_asof(
                 future_frame,
                 left_on="_target_timestamp_ms",
-                right_on=future_timestamp,
+                right_on=MATCHED_EXIT_MS,
                 by="symbol",
                 strategy="forward",
                 tolerance=max_match_lag_ms,
             )
             .with_columns(
                 pl.lit(horizon_s).alias("horizon_s"),
-                (pl.col(future_timestamp) - pl.col("_target_timestamp_ms")).alias(
+                (pl.col(MATCHED_EXIT_MS) - pl.col("_target_timestamp_ms")).alias(
                     "forward_match_lag_ms"
                 ),
                 ((pl.col("_future_mid") / pl.col("mid") - 1.0) * 10_000.0).alias(
@@ -376,7 +395,7 @@ def analyze_file(
         max_reference_lag_ms=max_reference_lag_ms,
     )
     if signals.is_empty():
-        raise ValueError("No usable observations remain after cleaning")
+        raise ValueError("No usable observations remain after checking capture availability and cleaning")
 
     outcomes = apply_cost_model(
         forward_outcomes(
@@ -435,11 +454,19 @@ def analyze_file(
     threshold_summary.write_csv(target / "threshold_stability.csv")
     walk_forward_folds.write_csv(target / "walk_forward_folds.csv")
     walk_forward_summary.write_csv(target / "walk_forward_summary.csv")
+    # A rerun produces newly available research, even when all inputs are historical.
+    latest_observation = datetime.fromtimestamp(int(signals["observed_timestamp_ms"].max()) / 1000, UTC)
+    gate_available_at = max(datetime.now(UTC), latest_observation).isoformat()
+    if not promotion_gate.is_empty():
+        promotion_gate = promotion_gate.with_columns(pl.lit(gate_available_at).alias("available_at"))
     promotion_gate.write_csv(target / "promotion_gate.csv")
     (target / "analysis_config.json").write_text(
         json.dumps(
             {
                 "input": str(source),
+                "input_observations": raw.height,
+                "unverified_or_late_observations": raw.select((~_known_at_sample(raw)).sum()).item(),
+                "usable_observations": signals.height,
                 "horizons_s": horizons_s,
                 "max_event_age_ms": max_event_age_ms,
                 "max_reference_lag_ms": max_reference_lag_ms,
@@ -449,6 +476,8 @@ def analyze_file(
                 "short_borrow_bps_per_day": cost_model.short_borrow_bps_per_day,
                 "test_fraction": test_fraction,
                 "holdout_cutoff_market_date": split.cutoff_date,
+                "label_endpoint_column": MATCHED_EXIT_MS,
+                "holdout_purged_labels": outcomes["sample"].eq("PURGED").sum(),
                 "train_market_dates": split.train_dates,
                 "test_market_dates": split.test_dates,
                 "bootstrap_resamples": bootstrap_resamples,

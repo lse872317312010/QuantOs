@@ -38,6 +38,35 @@ Both timestamps must be timezone-aware.
 Point-in-time analytical queries use an explicit `as_of` timestamp and only return rows at or
 before it.
 
+Both the event clock and the source's availability clock must be at or before that cutoff.
+The catalog uses `ts_received` by default. An adapter may name another timezone-aware column
+in `DataSource.metadata["availability_column"]`. A local observation can use its event clock
+for both only when the producer establishes that the clocks coincide. A source without a
+verifiable clock yields an explicit unavailable report. For the same event time the newest
+eligible version wins. Sources with same-instant revisions can register a `sequence_column`
+to order those versions.
+
+The bStocks adapter uses the completed pair as the availability of derived CSV fields.
+The reference event has its vendor timestamp. For bookTicker, the book timestamp is the local
+receipt reconstructed from sample time and book age. Sampling an unchanged book preserves
+its age. The health report measures quote age. Connection status requires separate telemetry.
+
+### Replaying existing captures
+
+1. Preserve the original CSV, Parquet, research outputs and journal. Register the CSV into
+   a fresh catalog and directory, for example
+   `bstocks-register-data --input data/stream_basis.csv --catalog data/replay.duckdb --output-dir data/replay`.
+2. New collectors stamp `available_timestamp_ms` after both inputs exist. The legacy
+   WebSocket collector's non-null `book_update_id` identifies a stream observation that was
+   already received at sampling. Old REST batches recorded time before per-symbol responses.
+   Rows with neither a verified pair time nor a stream update ID remain archived and
+   unavailable for historical decisions. Re-exporting such rows cannot recover their clock.
+3. Continue an old stream CSV when its update IDs preserve the timing contract. Start a fresh
+   CSV for REST or streams with missing IDs so the explicit availability column can be saved.
+   For a mixed archive, keep new captures in a versioned file. The offline research command
+   reports the number of unverified or late pairs and the usable observation count in
+   `analysis_config.json`.
+
 ## Source registry
 
 `AnalyticalCatalog` stores:
@@ -51,6 +80,21 @@ before it.
 It also stores canonical instruments.
 
 The registry is metadata only; DuckDB and Parquet remain the storage/query primitives.
+
+### Re-importing a paired bStocks capture
+
+`bstocks-register-data` reads the capture into one temporary DuckDB table, then writes both
+Parquet files in a staging directory. The completed files have names such as
+`book-<sha256>.parquet` and `reference-<sha256>.parquet`. Their absolute paths and the
+instrument registrations become visible together when one DuckDB transaction commits.
+Use the paths printed by the command or look them up by source ID.
+
+Snapshots and health reports read the source registrations for the entire report in one
+query. A concurrent re-import becomes visible to the next report. A failed import leaves
+the earlier registered pair readable, including after reopening the catalog. Retrying
+reuses files with the same bytes. The output directory retains earlier versions for audit
+and can also contain unreferenced files after an interrupted import. Existing fixed-name
+files and older catalogs remain readable at their recorded paths.
 
 ## Quality semantics
 

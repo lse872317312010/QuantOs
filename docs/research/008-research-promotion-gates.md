@@ -24,7 +24,9 @@ No TEST result can override a TRAIN rejection.
 : the TRAIN candidate has no repeated walk-forward evidence yet.
 
 `INSUFFICIENT_OOS_HISTORY`
-: walk-forward evidence exists but does not meet the minimum number of selected folds or test dates.
+: the history falls short of the minimum folds or dates, or a required OOS measurement is missing,
+  non-finite, or outside the valid range for a fold rate. A missing TRAIN selection flag is handled
+  as `REJECTED_TRAIN`.
 
 `OOS_WEAK`
 : enough OOS history exists, but average net economics or positive-fold rate misses the configured

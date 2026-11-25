@@ -1,4 +1,6 @@
+from dataclasses import replace
 from datetime import UTC, datetime
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -101,6 +103,36 @@ def test_risk_blocker_forces_blocked_avoid_state() -> None:
 def test_config_rejects_invalid_weight() -> None:
     with pytest.raises(ValueError, match="non-negative"):
         SynthesisConfig(domain_weights={EvidenceDomain.STRATEGY: -1.0})
+
+
+def test_missing_risk_assessment_blocks_only_the_affected_instrument() -> None:
+    signal = (ev(1.0, 1.0, "strong"),)
+    snapshot = RuleBasedDecisionSynthesizer().synthesize(
+        as_of=NOW, evidence_by_instrument={"X": signal, "Y": signal},
+        risk_by_instrument={"Y": RiskAssessment(overall_score=0.0)}, market_context={},
+    )
+    good, blocked = snapshot.candidates
+    assert (good.instrument, good.state) == ("Y", DecisionState.CANDIDATE)
+    assert (blocked.instrument, blocked.state) == ("X", DecisionState.BLOCKED)
+    assert blocked.priority_score == 0
+    assert blocked.risk.blockers
+
+
+def test_synthesis_checks_actual_evidence_availability_across_fall_back() -> None:
+    zone = ZoneInfo("America/New_York")
+    observed = datetime(2026, 11, 1, 1, 45, tzinfo=zone, fold=0)
+    received = datetime(2026, 11, 1, 1, 15, tzinfo=zone, fold=1)
+    delayed = replace(ev(1.0, 1.0, "revised"), observed_at=observed, available_at=received)
+    args = {
+        "evidence_by_instrument": {"X": (delayed,)},
+        "risk_by_instrument": {"X": RiskAssessment(0.0)}, "market_context": {},
+    }
+    synth = RuleBasedDecisionSynthesizer()
+    with pytest.raises(ValueError, match="available"):
+        synth.synthesize(as_of=observed, **args)
+    snapshot = synth.synthesize(as_of=received, **args)
+    assert snapshot.as_of.tzinfo is UTC
+    assert snapshot.candidates[0].state is DecisionState.CANDIDATE
 
 
 def test_decision_journal_round_trips_snapshot_as_jsonl(tmp_path) -> None:

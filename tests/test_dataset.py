@@ -1,3 +1,5 @@
+from dataclasses import replace
+
 import pytest
 
 from bstocks_alpha.dataset import append_snapshot_csv
@@ -40,3 +42,16 @@ def test_append_snapshot_csv_rejects_schema_mismatch(tmp_path) -> None:
     target.write_text("old,header\n1,2\n")
     with pytest.raises(ValueError, match="schema mismatch"):
         append_snapshot_csv([observation()], target)
+
+
+def test_append_to_old_stream_schema_preserves_provable_sample_time(tmp_path):
+    from dataclasses import fields
+
+    target = tmp_path / "old-stream.csv"
+    sample = replace(observation(), book_update_id=19, available_timestamp_ms=200)
+    old_columns = [field.name for field in fields(sample) if field.name != "available_timestamp_ms"]
+    target.write_text(",".join(old_columns) + "\n")
+    assert append_snapshot_csv([sample], target) == 1
+    assert len(target.read_text().splitlines()[1].split(",")) == len(old_columns)
+    with pytest.raises(ValueError, match="schema mismatch"):
+        append_snapshot_csv([replace(sample, book_update_id=None)], target)
