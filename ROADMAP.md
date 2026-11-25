@@ -56,7 +56,7 @@ P0–P6 是验收门槛而不是工期承诺。全部未验收。可并行开展
 | [#20 研究晋级](https://github.com/lse872317312010/QuantOs/pull/20) `dc991a6` | 空值、非有限值及越界的必需样本外指标阻断晋级 | [CI](https://github.com/lse872317312010/QuantOs/actions/runs/45523526909) |
 | [#21 行情可用时间](https://github.com/lse872317312010/QuantOs/pull/21) `84328a3` | 区分行情事件及已收到时刻，按当时可用版本回放，REST 逐标的响应后才计时，隔离无法还原的旧观测 | [CI](https://github.com/lse872317312010/QuantOs/actions/runs/45523688359) |
 | [#22 成对导入](https://github.com/lse872317312010/QuantOs/pull/22) `6c1fe60` | 依赖 #21。盘口和参考价一起登记，导入失败可重试，读取中的快照和健康报告始终使用同批文件 | [CI](https://github.com/lse872317312010/QuantOs/actions/runs/45525112631) |
-| [#24 行情新鲜度](https://github.com/lse872317312010/QuantOs/pull/24) `f5f1e79` | UTC 实际经过时间；未来观测返回 UNAVAILABLE，保留诊断，不抛不存在方法异常 | [CI](https://github.com/lse872317312010/QuantOs/actions/runs/45542068550)；[最新复审无发现](https://github.com/lse872317312010/QuantOs/pull/24#issuecomment-7152224657)，旧审查线程仍开放 |
+| [#24 行情新鲜度](https://github.com/lse872317312010/QuantOs/pull/24) `f5f1e79` | UTC 实际经过时间；未来观测返回 UNAVAILABLE，保留诊断，不抛不存在方法异常 | [CI](https://github.com/lse872317312010/QuantOs/actions/runs/45542068550)；[最新复审无发现](https://github.com/lse872317312010/QuantOs/pull/24#issuecomment-7152224657)，旧审查线程当时仍开放（后续已关闭，见下文） |
 
 以 `cc1e40b` 为基线，在本地临时工作树依次组合 #16、#18、#19、#21、#20 的上述内容，Git tree 为 `c352c7daeff9f8ba2f4afa16ff79673ea5e95b33`。Python 3.12 的 `ruff check .`、`git diff --check` 和全量 `pytest -q` 通过，共 131 项。离线端到端验证用 2 个标的、6 行合成观测，走通 `bstocks-register-data`、`quantos-data health`、`bstocks-analyze` 和工作台日志。3 条已匹配结果中 2 条通过切分，另 1 条的实际退出恰逢测试日午夜。组合回归还覆盖了 3 次训练选中而仅 1 折有样本外结果的情形，其晋级状态为 `INSUFFICIENT_OOS_HISTORY`。截止时刻有完整数据的标的进入人工审阅，只有未来数据的标的记录为 `BLOCKED`，优先分为 0。
 
@@ -65,10 +65,18 @@ P0–P6 是验收门槛而不是工期承诺。全部未验收。可并行开展
 #### 七项修复的隔离组合验证（2026-11-25）
 
 - [#25](https://github.com/lse872317312010/QuantOs/pull/25) 为验证专用草稿，禁止直接合并。基线 `cc1e40b9cdc5a8ba238b8800c77ec59c68293ed6`，组合提交 `94fcc3ed974164d16de49e2a78a370f711412df0`，tree `cde5e1b0b2dd70fcfc645dd51c61812f8c640a9c`；精确来源 head 在 #25 描述中。
-- [PR CI 45546031600](https://github.com/lse872317312010/QuantOs/actions/runs/45546031600) 的 test job 日志确认 Ruff 全通过、pytest **143 passed, 27 warnings in 4.39s**；[push CI](https://github.com/lse872317312010/QuantOs/actions/runs/45546004139) 亦成功。[Codex 对该精确提交的审查](https://github.com/lse872317312010/QuantOs/pull/25#issuecomment-7152752201) 完成且无发现，#25 无 inline review threads。独立 CI 与隔离组合 CI 成功不等于 main 已集成；警告原因未逐一审核，不视为已解决。
-- 组合契约：#19 的未来行情异常和 #24 的结构化拒绝统一为 UNAVAILABLE，复用 #19 `as_utc` 和 #21 `DataQualityReport.unavailable`；测试要求不可用状态及空时间/新鲜度/完整性，而非静默接受未来数据。#24 旧审查线程尚未关闭，虽最新复审无发现，仍需按贡献规则核对处理记录。
+- [PR CI 45546031600](https://github.com/lse872317312010/QuantOs/actions/runs/45546031600) 的 test job 日志确认 Ruff 全通过、pytest **143 passed, 27 warnings in 4.39s**；[push CI](https://github.com/lse872317312010/QuantOs/actions/runs/45546004139) 亦成功。[Codex 对该精确提交的审查](https://github.com/lse872317312010/QuantOs/pull/25#issuecomment-7152752201) 完成且无发现，#25 无 inline review threads。独立 CI 与隔离组合 CI 成功不等于 main 已集成；警告当时尚未分类（后续日志核验见下文），不视为已解决。
+- 组合契约：#19 的未来行情异常和 #24 的结构化拒绝统一为 UNAVAILABLE，复用 #19 `as_utc` 和 #21 `DataQualityReport.unavailable`；测试要求不可用状态及空时间/新鲜度/完整性，而非静默接受未来数据。#24 旧审查线程在该次组合时尚未关闭（后续已核实解决，见下文）。
 - **正常集成计划（提案，尚未执行）：** 先由所有者采纳 #17；普通代码 PR 按最新基线、适用权限、精确提交 CI 与审查门槛逐一处理。#22 以 #21 分支为 base，先核验 #21 的合并结果，再审查 #22 的目标 base 与增量差异，避免重复引入。#19/#24 以及其他重叠文件按 #25 已验证的契约在正常 PR 上协调；每次重新取 head/base、复验合并差异并请求必要的最新审查，不能以 #25 的测试替代新提交检查。不直接合并 #25、不强推、不批量无条件合并。最终对 main 运行适用全套 CI 并核验集成契约、历史产物隔离及剩余 P0 时间/交易日历与治理验收。
 - 本轮仅记录验证证据及集成计划；无实际行情、正式预测、前向案例或投资有效性证据；无新增运行依赖、权限、费用或服务。回滚文档更新用正常 revert；#25 保持隔离。
+
+#### 叠加集成与借用成本（2026-11-25 后续核验）
+
+- [#26](https://github.com/lse872317312010/QuantOs/pull/26) 是面向 #19 的正常增量 PR，head `5abaa5b4876a1f1ad870d3811c95e1348d780557`，base `fix/p0-review-risk-gates`。统一 #19/#24 的未来行情拒绝契约，保留诊断与空指标；[精确 head CI 45559797266](https://github.com/lse872317312010/QuantOs/actions/runs/45559797266) 实际日志为 Ruff PASS、86 passed、14 warnings；[Codex](https://github.com/lse872317312010/QuantOs/pull/26#issuecomment-7154682424) 同 SHA 无发现。#24 原审查线程 [4689658983](https://github.com/lse872317312010/QuantOs/pull/24#discussion_r4689658983) 经 GraphQL 核实已解决且过时。#26 描述记录七项真实合并历史重放与 #25 tree 一致、143 项本地测试通过；本轮未独立重跑该本地实验。
+- [#27](https://github.com/lse872317312010/QuantOs/pull/27) 是新增 C05/C09/C10/C14 正确性修复，head `e19c024eadc3cf6fe5b0b2ceca52e473513ce0d0`，base `fix/p0-realized-label-boundaries`（#18）。空头借用成本依实际退出时间而非请求期限；正费率缺失/冲突时间不填虚构成本，未匹配样本继续计入覆盖率分母。[精确 head CI 45560576232](https://github.com/lse872317312010/QuantOs/actions/runs/45560576232) 实际日志为 Ruff PASS、78 passed、16 warnings；[Codex](https://github.com/lse872317312010/QuantOs/pull/27#issuecomment-7154789875) 同 SHA 无发现。PR 描述另记录本地八项修复组合 tree `ee1d6a6cd3ccebd7fcf5a80223b3e329c5fb0893`、148 passed、28 warnings，以及离线合成报价 CLI 复验；本轮未独立重跑、未取得该组合的远端 CI，不把它写为八项远端组合验收。
+- [#25 CI 日志](https://github.com/lse872317312010/QuantOs/actions/runs/45546031600) 的 27 项 pytest 警告已按原始日志分类：24 项 pandas Series.values 的时区数组行为弃用（test_research 20、test_validation 4）；3 项 Polars grouped join_asof 无法自动检查排序。#26/#27 的最新日志重复出现这两类，另有 GitHub Actions Node.js 20 弃用提示（不计入 pytest warnings）。后续需定位 pandas 调用栈，验证 UTC 时间和 DST 边界不受未来版本变更影响，并针对每组时间单调性、乱序输入和等时刻匹配建立行为测试；不能仅屏蔽警告。CI runner 兼容性更新独立处理。不把警告分类等同于问题修复。
+- 正常集成计划更新（仍待治理采纳及授权）：#26 先在实际 #19 base 上复核，按保留真实合并历史的方式集成 #19/#24 的契约协调；避免 #24 重复引入。#27 先在 #18 base 上复核，依赖 #18；#22 依赖 #21。保留 #16/#20 独立路线，任何 base/head 更新后重新验证实际增量与审查。禁止直接合并 #25；不以此前七项验证替代八项最终主线验证。#17 上一 head `dcb0b046b192d5807b6a32af0248ce19e5d08ddd` 的 [CI](https://github.com/lse872317312010/QuantOs/actions/runs/45553095309) 与 [Codex 复审](https://github.com/lse872317312010/QuantOs/pull/17#issuecomment-7153726330) 已通过；本次文档更新须重新核对新 head。
+- 历史影响：除原时间/数据质量问题外，正费率延迟退出的旧空头成本及其派生验证和晋级指标须保留旧版并从可验证行情在新目录重算；无真实源则继续未核验。#26/#27 均未合并，未修改依赖、数据权限、资金权限、费用或部署。本次只更新证据与待办，回滚为普通文档 revert。P0 尚未正式验收。
 
 历史采集和原研究结果需保留原版本。只有能核实接收时刻的 CSV 才能在新目录重建对应的 Parquet、holdout、bootstrap、walk-forward 和 promotion 产物。旧 REST 批次缺少逐响应接收时刻，旧晋级表缺少生成时刻，旧决策日志也可能缺少风险核验记录。这些产物保留为未验证历史。仓库未跟踪真实采集，尚无可重算的真实样本或前向案例。各 PR 记录了独立回滚方式。
 
@@ -151,7 +159,7 @@ P0–P6 是验收门槛而不是工期承诺。全部未验收。可并行开展
 | --- | --- | --- | --- |
 | 1 | 所有者审核并人工采纳宪法 | #17；C15 | 待批准 |
 | 2 | 修复 #16 UTC/DST 与复查时间语义 | #16 目标提交与审查线程 | 修复已复验，待合并 |
-| 3 | 审计既有研究、风险和快照关键正确性 | #18–#22、#24 与 #25 精确组合测试记录 | 143 项组合测试通过；待正常 PR 集成、历史产物核验及剩余 P0 门槛 |
+| 3 | 审计既有研究、风险和快照关键正确性 | #18–#22、#24、#26–#27 与 #25 精确组合测试记录 | 七项远端组合 143 passed；#26/#27 独立 CI 通过，八项本地组合 148 passed 为 PR 报告；待正常 PR 集成、警告跟踪、历史产物核验及剩余 P0 门槛 |
 | 4 | 接入首个获准资料并建立来源版本记录 | P0；P1；[Issue #23](https://github.com/lse872317312010/QuantOs/issues/23) | FOMC 候选来源预研，未取得实际配对行情；未验收 |
 | 5 | 知识检索、假设登记及持久化 | P1→P2→P3 | 未验收 |
 | 6 | 可复现实验及真实预测到期复盘 | P4→P5 | 未验收 |
