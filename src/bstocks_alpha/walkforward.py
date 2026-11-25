@@ -7,6 +7,7 @@ import polars as pl
 from skfolio.model_selection import WalkForward
 
 from .robustness import threshold_stability_report
+from .validation import purge_overlapping_labels
 
 
 def walk_forward_threshold_report(
@@ -59,6 +60,12 @@ def walk_forward_threshold_report(
                 .alias("sample")
             )
         )
+        fold_frame = purge_overlapping_labels(
+            fold_frame,
+            train_before=dates[int(train_idx[-1]) + 1],
+            test_through=test_dates[-1],
+        )
+        purged = fold_frame.filter(pl.col("sample") == "PURGED")
         report = threshold_stability_report(
             fold_frame,
             thresholds_bps=thresholds_bps,
@@ -76,6 +83,8 @@ def walk_forward_threshold_report(
             pl.lit(test_dates[-1]).alias("test_end_date"),
             pl.lit(len(train_dates)).alias("fold_train_dates"),
             pl.lit(len(test_dates)).alias("fold_test_dates"),
+            pl.lit(purged["market_date"].is_in(train_dates).sum()).alias("fold_purged_train_labels"),
+            pl.lit(purged["market_date"].is_in(test_dates).sum()).alias("fold_purged_test_labels"),
             pl.lit(purged_size_dates).alias("purged_size_dates"),
             pl.lit(expand_train).alias("expand_train"),
         )

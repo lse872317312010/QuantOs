@@ -1,10 +1,12 @@
-from datetime import datetime
+import json
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import polars as pl
 import pytest
 
 from bstocks_alpha.research import (
+    analyze_file,
     forward_outcomes,
     label_us_equity_sessions,
     prepare_signals,
@@ -119,3 +121,30 @@ def test_summary_reports_matched_forward_returns() -> None:
     outcomes = forward_outcomes(signals, horizons_s=(1,), max_match_lag_ms=0)
     summary = summarize_forward_outcomes(outcomes)
     assert summary["matched"].sum() == 1
+
+
+def test_analysis_excludes_a_delayed_exit_from_split_statistics(tmp_path) -> None:
+    midnight = datetime(2026, 10, 1, tzinfo=NY)
+    raw = pl.DataFrame([
+        raw_row(midnight + timedelta(milliseconds=ms)) for ms in (-5000, -4000, -1500, 0, 1000)
+    ])
+    source = tmp_path / "basis.csv"
+    raw.write_csv(source)
+    target = tmp_path / "results"
+    analyze_file(source, target, horizons_s=(1,), max_match_lag_ms=600, thresholds_bps=(5.0,))
+
+    # The nominal target is 500 ms before midnight, but the first observed exit
+    # is exactly midnight. Keep the outcome for audit and remove it from fitting.
+    outcomes = pl.read_parquet(target / "forward_outcomes.parquet")
+    purged = outcomes.filter(pl.col("sample") == "PURGED").row(0, named=True)
+    assert purged["_future_timestamp_ms"] == epoch_ms(midnight)
+    assert purged["forward_match_lag_ms"] == 500
+    assert json.loads((target / "analysis_config.json").read_text())["holdout_purged_labels"] == 1
+    assert pl.read_csv(target / "forward_summary.csv")["matched"].sum() == 3
+    assert pl.read_csv(target / "holdout_summary.csv")["matched"].sum() == 2
+    assert pl.read_csv(target / "daily_net_summary.csv")["matched_trades"].sum() == 2
+    assert set(pl.read_csv(target / "bootstrap_ci.csv")["sample"]) == {"TRAIN", "TEST"}
+    thresholds = pl.read_csv(target / "threshold_stability.csv").row(0, named=True)
+    assert thresholds["train_matched_trades"] == thresholds["test_matched_trades"] == 1
+    gate = pl.read_csv(target / "promotion_gate.csv").row(0, named=True)
+    assert datetime.fromisoformat(gate["available_at"]) >= midnight + timedelta(seconds=1)

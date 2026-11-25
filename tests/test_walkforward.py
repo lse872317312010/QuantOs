@@ -1,3 +1,6 @@
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
+
 import polars as pl
 import pytest
 
@@ -10,6 +13,7 @@ def outcome(
     *,
     edge_bps: float = 30.0,
 ) -> dict[str, object]:
+    day = datetime.fromisoformat(market_date).replace(tzinfo=ZoneInfo("America/New_York"))
     return {
         "market_date": market_date,
         "sample": "IGNORED",
@@ -18,6 +22,7 @@ def outcome(
         "preferred_side": "LONG",
         "gross_convergence_edge_bps": edge_bps,
         "net_forward_trade_return_bps": net_bps,
+        "_future_timestamp_ms": int((day + timedelta(hours=12)).timestamp() * 1000),
     }
 
 
@@ -55,6 +60,33 @@ def test_walk_forward_returns_empty_when_history_is_too_short() -> None:
         purged_size_dates=1,
     )
     assert result.is_empty()
+
+
+@pytest.mark.parametrize("gap", [0, 1])
+def test_walk_forward_repurges_actual_exits_for_each_fold(gap: int) -> None:
+    rows = [outcome(f"2026-09-{day:02d}", float(day)) for day in range(1, 10)]
+    # The last TRAIN label ends on the first reserved date. A long TEST label
+    # ends beyond this fold, but belongs to the training history of a later fold.
+    rows[2]["_future_timestamp_ms"] = rows[3]["_future_timestamp_ms"]
+    test_index = 3 + gap
+    rows[test_index]["_future_timestamp_ms"] = rows[test_index + 2]["_future_timestamp_ms"]
+    options = {
+        "thresholds_bps": (5.0,),
+        "train_size_dates": 3,
+        "test_size_dates": 2,
+        "purged_size_dates": gap,
+        "min_train_dates": 2,
+    }
+    first = walk_forward_threshold_report(pl.DataFrame(rows), **options).row(0, named=True)
+    assert first["train_matched_trades"] == 2
+    assert first["train_mean_daily_net_bps"] == pytest.approx(1.5)
+    assert first["test_matched_trades"] == 1
+    assert first["fold_purged_train_labels"] == first["fold_purged_test_labels"] == 1
+    changed = [dict(row) for row in rows]
+    changed[2]["net_forward_trade_return_bps"] = 100_000.0
+    changed[test_index]["net_forward_trade_return_bps"] = -100_000.0
+    repeat = walk_forward_threshold_report(pl.DataFrame(changed), **options).row(0, named=True)
+    assert repeat == first
 
 
 def test_walk_forward_summary_uses_only_train_selected_candidates() -> None:
