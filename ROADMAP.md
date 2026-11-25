@@ -41,7 +41,7 @@ P0–P6 是验收门槛而不是工期承诺。全部未验收。可并行开展
 
 - [x] 在 #16 的 `e8a7335` 复验学习协议 UTC 时序。春季跳时、秋季重复小时、跨日、等于截止时刻、晚到/修订与提前评分均有回归覆盖。32 项专项测试通过，原[审查线程已解决](https://github.com/lse872317312010/QuantOs/pull/16#discussion_r4675831648)。
 - [ ] 检查现有 data/evidence/risk/decision/workspace/journal 的时间及可用性语义；交易日期限复用成熟日历，明确事件时间不等于信息可用时间；列出受影响历史产物并隔离或重算。
-- [ ] 审计旧研究标签实际结束点、分割泄漏与 purge；审计缺失风险评估/关键 provider 失败是否仍能晋级、未来 evidence 是否被决策层接受。未经验证的路径不得用于正式结论；为实质缺口建立阻断测试及修复记录。
+- [x] 已在 #18–#21 审计旧研究标签实际结束点、分割泄漏、样本外晋级、缺失风险与未来证据，并为复现的缺口提交阻断测试。主线集成和历史结果采用另行验收。
 - [ ] 记录治理采纳、适用检查、未解决审查与服务端保护状态。分支保护/ruleset 由有权限维护者另行核验配置，不能从 PR 模板推断已启用。
 
 **退出证据：** 目标提交的相关回归测试、全套适用 CI、审查关闭或人工确认的不适用记录；明确历史结果影响。P0 未通过不得将 #16 或受影响旧结果作为正式预测/评分依据。
@@ -51,12 +51,12 @@ P0–P6 是验收门槛而不是工期承诺。全部未验收。可并行开展
 | 目标提交 | 已核实行为 | 验证 |
 | --- | --- | --- |
 | [#16 学习协议](https://github.com/lse872317312010/QuantOs/pull/16) `e8a7335` | 以实际 UTC 时刻计算期限，只在到期且结果可用时允许评分 | [CI](https://github.com/lse872317312010/QuantOs/actions/runs/45520689905) |
-| [#18 标签边界](https://github.com/lse872317312010/QuantOs/pull/18) `fb6b72d` | 按实际退出报价清除跨越训练、隔离及滚动测试窗口的标签；核对研究表生成时刻 | [CI](https://github.com/lse872317312010/QuantOs/actions/runs/45522110398) |
+| [#18 标签边界](https://github.com/lse872317312010/QuantOs/pull/18) `7b25a37` | 按实际退出报价清除跨窗标签，晋级只计有实际样本外结果的选中折；核对研究表生成时刻 | [CI](https://github.com/lse872317312010/QuantOs/actions/runs/45524543405) |
 | [#19 工作台](https://github.com/lse872317312010/QuantOs/pull/19) `2544bad` | 未来证据不能进入审阅；缺风险、必需源异常或缺失触发硬阻断。其他标的和有效证据仍可审阅，结果记入 JSONL | [CI](https://github.com/lse872317312010/QuantOs/actions/runs/45522676578) |
 | [#20 研究晋级](https://github.com/lse872317312010/QuantOs/pull/20) `dc991a6` | 空值、非有限值及越界的必需样本外指标阻断晋级 | [CI](https://github.com/lse872317312010/QuantOs/actions/runs/45523526909) |
 | [#21 行情可用时间](https://github.com/lse872317312010/QuantOs/pull/21) `84328a3` | 区分行情事件及已收到时刻，按当时可用版本回放，REST 逐标的响应后才计时，隔离无法还原的旧观测 | [CI](https://github.com/lse872317312010/QuantOs/actions/runs/45523688359) |
 
-以 `cc1e40b` 为基线，在本地临时工作树依次组合 #16、#18、#19、#21、#20 的上述内容，Git tree 为 `3d6c66b92bd304da4e6194cb70575d35c5742f42`。Python 3.12 的 `ruff check .`、`git diff --check` 和全量 `pytest -q` 通过，共 129 项。离线端到端验证用 2 个标的、6 行合成观测，走通 `bstocks-register-data`、`quantos-data health`、`bstocks-analyze` 和工作台日志。3 条已匹配结果中 2 条通过切分，另 1 条的实际退出恰逢测试日午夜。截止时刻有完整数据的标的进入人工审阅，只有未来数据的标的记录为 `BLOCKED`，优先分为 0。
+以 `cc1e40b` 为基线，在本地临时工作树依次组合 #16、#18、#19、#21、#20 的上述内容，Git tree 为 `c352c7daeff9f8ba2f4afa16ff79673ea5e95b33`。Python 3.12 的 `ruff check .`、`git diff --check` 和全量 `pytest -q` 通过，共 131 项。离线端到端验证用 2 个标的、6 行合成观测，走通 `bstocks-register-data`、`quantos-data health`、`bstocks-analyze` 和工作台日志。3 条已匹配结果中 2 条通过切分，另 1 条的实际退出恰逢测试日午夜。组合回归还覆盖了 3 次训练选中而仅 1 折有样本外结果的情形，其晋级状态为 `INSUFFICIENT_OOS_HISTORY`。截止时刻有完整数据的标的进入人工审阅，只有未来数据的标的记录为 `BLOCKED`，优先分为 0。
 
 历史采集和原研究结果需保留原版本。只有能核实接收时刻的 CSV 才能在新目录重建对应的 Parquet、holdout、bootstrap、walk-forward 和 promotion 产物。旧 REST 批次缺少逐响应接收时刻，旧晋级表缺少生成时刻，旧决策日志也可能缺少风险核验记录。这些产物保留为未验证历史。仓库未跟踪真实采集，尚无可重算的真实样本或前向案例。各 PR 记录了独立回滚方式。
 
