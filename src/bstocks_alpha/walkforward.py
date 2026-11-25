@@ -7,6 +7,7 @@ import polars as pl
 from skfolio.model_selection import WalkForward
 
 from .robustness import threshold_stability_report
+from .validation import purge_label_windows
 
 
 def walk_forward_threshold_report(
@@ -59,6 +60,9 @@ def walk_forward_threshold_report(
                 .alias("sample")
             )
         )
+        fold_frame = purge_label_windows(
+            fold_frame, test_start=test_dates[0], test_end=test_dates[-1]
+        )
         report = threshold_stability_report(
             fold_frame,
             thresholds_bps=thresholds_bps,
@@ -77,6 +81,7 @@ def walk_forward_threshold_report(
             pl.lit(len(train_dates)).alias("fold_train_dates"),
             pl.lit(len(test_dates)).alias("fold_test_dates"),
             pl.lit(purged_size_dates).alias("purged_size_dates"),
+            pl.lit(fold_frame["sample"].eq("PURGED").sum()).alias("purged_label_rows"),
             pl.lit(expand_train).alias("expand_train"),
         )
         fold_frames.append(report)

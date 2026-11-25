@@ -1,5 +1,7 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
+
+import pytest
 
 from bstocks_alpha.evidence import BStocksBasisEvidenceProvider, BStocksResearchGateEvidenceProvider
 from quantos.contracts import EvidenceDomain
@@ -53,23 +55,28 @@ def test_bstocks_research_gate_provider_emits_strategy_evidence(tmp_path: Path) 
     gate.write_text(
         "horizon_s,market_session,preferred_side,threshold_bps,research_state,"
         "selected_folds,test_market_dates,mean_oos_daily_net_bps,"
-        "median_oos_daily_net_bps,positive_oos_fold_rate,train_fdr_q_value\n"
-        "5,REGULAR,LONG,10.0,RESEARCH_CANDIDATE,4,20,3.5,3.0,0.75,0.01\n",
+        "median_oos_daily_net_bps,positive_oos_fold_rate,train_fdr_q_value,"
+        "label_window_policy,available_at\n"
+        "5,REGULAR,LONG,10.0,RESEARCH_CANDIDATE,4,20,3.5,3.0,0.75,0.01,"
+        f"matched-end-ny-date-v1,{NOW.isoformat()}\n",
         encoding="utf-8",
     )
 
-    evidence = BStocksResearchGateEvidenceProvider(gate).collect_evidence(
-        instrument="SPYBUSDT.BINANCE",
-        as_of=NOW,
-        context={
-            "horizon_s": 5,
-            "market_session": "REGULAR",
-            "preferred_side": "LONG",
-            "threshold_bps": 10.0,
-        },
-    )[0]
+    provider = BStocksResearchGateEvidenceProvider(gate)
+    args = {
+        "instrument": "SPYBUSDT.BINANCE",
+        "context": {"horizon_s": 5, "market_session": "REGULAR",
+                    "preferred_side": "LONG", "threshold_bps": 10},
+    }
+    assert provider.collect_evidence(as_of=NOW - timedelta(microseconds=1), **args) == ()
+    evidence = provider.collect_evidence(as_of=NOW, **args)[0]
+    assert provider.collect_evidence(as_of=NOW + timedelta(days=1), **args)[0].observed_at == NOW
 
     assert evidence.domain is EvidenceDomain.STRATEGY
     assert evidence.directional_score > 0
     assert evidence.metadata["research_state"] == "RESEARCH_CANDIDATE"
     assert evidence.metadata["selected_folds"] == 4
+
+    gate.write_text("horizon_s,research_state\n5,RESEARCH_CANDIDATE\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="regenerate"):
+        provider.collect_evidence(as_of=NOW, **args)

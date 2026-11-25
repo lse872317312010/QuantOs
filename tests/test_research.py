@@ -1,3 +1,4 @@
+import json
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -5,6 +6,7 @@ import polars as pl
 import pytest
 
 from bstocks_alpha.research import (
+    analyze_file,
     forward_outcomes,
     label_us_equity_sessions,
     prepare_signals,
@@ -119,3 +121,25 @@ def test_summary_reports_matched_forward_returns() -> None:
     outcomes = forward_outcomes(signals, horizons_s=(1,), max_match_lag_ms=0)
     summary = summarize_forward_outcomes(outcomes)
     assert summary["matched"].sum() == 1
+
+
+def test_offline_research_purges_a_late_exit_and_records_it_in_artifacts(tmp_path) -> None:
+    rows = [
+        raw_row(datetime(2026, 9, 30, 23, 59, 58, 500_000, tzinfo=NY)),
+        raw_row(datetime(2026, 10, 1, 0, 0, tzinfo=NY)),
+        raw_row(datetime(2026, 10, 1, 0, 0, 1, tzinfo=NY)),
+    ]
+    path = tmp_path / "observations.csv"
+    pl.DataFrame(rows).write_csv(path)
+    analyze_file(path, tmp_path, horizons_s=(1,), max_match_lag_ms=500)
+    result = pl.read_parquet(tmp_path / "forward_outcomes.parquet")
+    assert result["label_end_timestamp_ms"].to_list() == [
+        rows[1]["observed_timestamp_ms"], rows[2]["observed_timestamp_ms"], None
+    ]
+    assert result["sample"].to_list() == ["PURGED", "TEST", "TEST"]
+    assert pl.read_csv(tmp_path / "threshold_stability.csv")["train_matched_trades"].sum() == 0
+    config = json.loads((tmp_path / "analysis_config.json").read_text())
+    assert config["holdout_purged_label_rows"] == 1
+    gate = pl.read_csv(tmp_path / "promotion_gate.csv")
+    assert gate["label_window_policy"].unique().to_list() == [config["label_window_policy"]]
+    assert datetime.fromisoformat(gate["available_at"][0]).utcoffset() is not None

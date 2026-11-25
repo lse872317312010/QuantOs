@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -11,6 +11,8 @@ import polars as pl
 
 from quantos.contracts import Evidence, EvidenceDomain
 from quantos.data import DataQualityState, MarketSnapshot
+
+from .validation import LABEL_WINDOW_POLICY
 
 
 def _float(value: Any) -> float:
@@ -115,7 +117,11 @@ class BStocksResearchGateEvidenceProvider:
         if any(key not in context for key in required_context):
             return ()
 
-        frame = pl.read_csv(self.path)
+        frame = pl.read_csv(self.path, raise_if_empty=False)
+        if frame.is_empty():
+            return ()
+        if not {"label_window_policy", "available_at"}.issubset(frame.columns):
+            raise ValueError("unversioned promotion gate; regenerate from the original observations")
         required_columns = {
             "horizon_s",
             "market_session",
@@ -136,6 +142,14 @@ class BStocksResearchGateEvidenceProvider:
             return ()
 
         row = matched.row(0, named=True)
+        if row["label_window_policy"] != LABEL_WINDOW_POLICY:
+            raise ValueError("unsupported promotion gate label window policy")
+        available_at = datetime.fromisoformat(str(row["available_at"]))
+        if available_at.utcoffset() is None or as_of.utcoffset() is None:
+            raise ValueError("promotion gate and review timestamps must be timezone-aware")
+        available_at = available_at.astimezone(UTC)
+        if available_at > as_of.astimezone(UTC):
+            return ()
         state = str(row["research_state"])
         positive_rate = row.get("positive_oos_fold_rate")
         confidence = {
@@ -156,6 +170,7 @@ class BStocksResearchGateEvidenceProvider:
         metadata = {
             "instrument": instrument,
             "model_scope": "bstocks-cross-sectional",
+            "label_window_policy": LABEL_WINDOW_POLICY,
             "research_state": state,
             "horizon_s": int(context["horizon_s"]),
             "market_session": str(context["market_session"]),
@@ -178,7 +193,7 @@ class BStocksResearchGateEvidenceProvider:
                 domain=EvidenceDomain.STRATEGY,
                 source=self.name,
                 summary=f"research validation state {state}",
-                observed_at=as_of,
+                observed_at=available_at,
                 confidence=confidence,
                 directional_score=directional_score,
                 metadata=metadata,

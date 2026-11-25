@@ -3,9 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date, datetime, time, timedelta
 from math import floor
+from zoneinfo import ZoneInfo
 
 import polars as pl
+
+NY = ZoneInfo("America/New_York")
+LABEL_WINDOW_POLICY = "matched-end-ny-date-v1"
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,6 +72,41 @@ def apply_cost_model(outcomes: pl.DataFrame, model: CostModel) -> pl.DataFrame:
     )
 
 
+def purge_label_windows(
+    tagged: pl.DataFrame, *, test_start: str, test_end: str
+) -> pl.DataFrame:
+    """Keep the actual exit quote inside the information window for its sample."""
+    if "label_end_timestamp_ms" not in tagged.columns and "_future_timestamp_ms" in tagged.columns:
+        # Research 003 used this name for the timestamp of the matched quote.
+        tagged = tagged.with_columns(pl.col("_future_timestamp_ms").alias("label_end_timestamp_ms"))
+
+    returns = [
+        column for column in ("forward_trade_return_bps", "net_forward_trade_return_bps")
+        if column in tagged.columns
+    ]
+    if "label_end_timestamp_ms" not in tagged.columns:
+        if returns:
+            raise ValueError("labeled outcomes require label_end_timestamp_ms; regenerate from input")
+        return tagged  # A date-only partition has no outcome to validate.
+
+    end = pl.col("label_end_timestamp_ms")
+    if returns and tagged.select(
+        (end.is_null() & pl.any_horizontal(pl.col(returns).is_not_null())).any()
+    ).item():
+        raise ValueError("matched return without label_end_timestamp_ms")
+
+    start = date.fromisoformat(test_start)
+    after = date.fromisoformat(test_end) + timedelta(days=1)
+    start_ms = int(datetime.combine(start, time.min, NY).timestamp()) * 1000
+    after_ms = int(datetime.combine(after, time.min, NY).timestamp()) * 1000
+    outside = ((pl.col("sample") == "TRAIN") & (end >= start_ms)) | (
+        (pl.col("sample") == "TEST") & (end >= after_ms)
+    )
+    return tagged.with_columns(
+        pl.when(outside).then(pl.lit("PURGED")).otherwise(pl.col("sample")).alias("sample")
+    )
+
+
 def chronological_holdout(
     outcomes: pl.DataFrame,
     *,
@@ -92,13 +132,17 @@ def chronological_holdout(
     cutoff_date = str(dates[train_date_count - 1])
 
     tagged = outcomes.with_columns(
-        pl.when(pl.col("market_date") <= cutoff_date)
+        pl.when(pl.col("market_date").is_null())
+        .then(pl.lit("UNSPLIT"))
+        .when(pl.col("market_date") <= cutoff_date)
         .then(pl.lit("TRAIN"))
         .otherwise(pl.lit("TEST"))
         .alias("sample")
     )
     return HoldoutSplit(
-        frame=tagged,
+        frame=purge_label_windows(
+            tagged, test_start=str(dates[train_date_count]), test_end=str(dates[-1])
+        ),
         cutoff_date=cutoff_date,
         train_dates=train_date_count,
         test_dates=len(dates) - train_date_count,

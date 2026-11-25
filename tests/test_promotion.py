@@ -68,6 +68,16 @@ def test_promotion_gate_marks_missing_walk_forward_history() -> None:
     assert result["research_state"] == "INSUFFICIENT_WALK_FORWARD"
 
 
+@pytest.mark.parametrize(("column", "value"), [
+    ("test_market_dates", None), ("positive_oos_fold_rate", None),
+    ("positive_oos_fold_rate", float("nan")), ("mean_oos_daily_net_bps", float("inf")),
+])
+def test_promotion_gate_rejects_incomplete_oos_metrics(column, value) -> None:
+    threshold = pl.DataFrame([threshold_row(10.0)])
+    walk = pl.DataFrame([{**walk_row(10.0), column: value}])
+    assert research_promotion_gate(threshold, walk)["research_state"][0] == "INSUFFICIENT_OOS_HISTORY"
+
+
 def test_promotion_gate_validates_probability_threshold() -> None:
     threshold = pl.DataFrame([threshold_row(10.0)])
     with pytest.raises(ValueError, match="between 0 and 1"):
