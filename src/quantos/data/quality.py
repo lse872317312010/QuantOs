@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 
 from .models import DataQualityReport, DataQualityState, DataSource
 
@@ -17,10 +17,13 @@ def assess_data_quality(
     stale_after_intervals: float = 3.0,
 ) -> DataQualityReport:
     """Assess a source without inventing data when observations are missing."""
-    if as_of.tzinfo is None:
+    if as_of.utcoffset() is None:
         raise ValueError("as_of must be timezone-aware")
-    if last_event_at is not None and last_event_at.tzinfo is None:
-        raise ValueError("last_event_at must be timezone-aware")
+    as_of = as_of.astimezone(UTC)
+    if last_event_at is not None:
+        if last_event_at.utcoffset() is None:
+            raise ValueError("last_event_at must be timezone-aware")
+        last_event_at = last_event_at.astimezone(UTC)
     if observed_count < 0:
         raise ValueError("observed_count must be non-negative")
     if expected_count is not None and expected_count < 0:
@@ -42,7 +45,13 @@ def assess_data_quality(
             issues=("no observations",),
         )
 
-    freshness_s = max(0.0, (as_of - last_event_at).total_seconds())
+    # Never turn a future observation into a healthy zero-age observation.
+    if last_event_at > as_of:
+        return DataQualityReport.unavailable(
+            source.source_id, as_of, "last event is after as_of"
+        )
+
+    freshness_s = (as_of - last_event_at).total_seconds()
     issues: list[str] = []
 
     stale_limit = None
