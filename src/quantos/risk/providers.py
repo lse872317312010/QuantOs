@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from collections.abc import Sequence
 from datetime import datetime
 from typing import Any
@@ -61,8 +62,12 @@ class LiquidityRiskProvider:
         warning_spread_bps: float = 25.0,
         blocker_spread_bps: float = 75.0,
     ) -> None:
-        if warning_spread_bps <= 0 or blocker_spread_bps <= warning_spread_bps:
-            raise ValueError("spread thresholds must be positive and ordered")
+        if not (
+            math.isfinite(warning_spread_bps)
+            and math.isfinite(blocker_spread_bps)
+            and 0 < warning_spread_bps < blocker_spread_bps
+        ):
+            raise ValueError("spread thresholds must be finite, positive and ordered")
         self.warning_spread_bps = warning_spread_bps
         self.blocker_spread_bps = blocker_spread_bps
 
@@ -87,6 +92,15 @@ class LiquidityRiskProvider:
             return RiskAssessment(
                 overall_score=1.0,
                 blockers=("liquidity evidence unavailable",),
+                dimensions={"liquidity": 1.0},
+            )
+
+        # Validate every observation before aggregation: max() can ignore NaN
+        # or negative values when a different source reports a healthy spread.
+        if any(not math.isfinite(value) or value < 0 for value in spreads):
+            return RiskAssessment(
+                overall_score=1.0,
+                blockers=("invalid liquidity spread",),
                 dimensions={"liquidity": 1.0},
             )
 
