@@ -1,3 +1,5 @@
+import json
+import math
 from collections.abc import Sequence
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
@@ -5,7 +7,13 @@ from typing import Any
 
 import pytest
 
-from quantos.contracts import DecisionState, Evidence, EvidenceDomain, RiskAssessment
+from quantos.contracts import (
+    DecisionSnapshot,
+    DecisionState,
+    Evidence,
+    EvidenceDomain,
+    RiskAssessment,
+)
 from quantos.decision import DecisionJournal, RuleBasedDecisionSynthesizer
 from quantos.evidence import EvidenceEngine
 from quantos.portfolio import PortfolioSnapshot, Position
@@ -162,6 +170,9 @@ def test_failed_risk_check_blocks_while_retaining_other_assessments(tmp_path):
     "spread, equity, expected_blockers",
     [
         (-1.0, 1000.0, {"invalid liquidity spread"}),
+        (float("nan"), 1000.0, {"invalid liquidity spread"}),
+        (float("inf"), 1000.0, {"invalid liquidity spread"}),
+        (float("-inf"), 1000.0, {"invalid liquidity spread"}),
         (5.0, float("inf"), {"invalid portfolio valuation"}),
         (-1.0, float("inf"), {"invalid liquidity spread", "invalid portfolio valuation"}),
         (5.0, 1000.0, set()),
@@ -209,7 +220,86 @@ def test_independent_liquidity_and_portfolio_veto_reaches_journal(
         assert candidate.risk.overall_score == 1.0
     else:
         assert candidate.priority_score > 0.0
-    entry = journal.entries()[0]["candidates"][0]
+    row = json.loads(journal.path.read_text(encoding="utf-8"), parse_constant=_reject_constant)
+    assert row == journal.entries()[0]
+    entry = row["candidates"][0]
+    assert any(item["source"] == "signal" for item in entry["evidence"])
+    index = next(i for i, item in enumerate(entry["evidence"]) if item["source"] == "liquidity")
+    stored = entry["evidence"][index]["metadata"]["spread_bps"]
+    if math.isfinite(spread):
+        assert stored == spread
+        assert "nonfinite_values" not in row
+    else:
+        assert stored is None
+        kind = {"nan": "NaN", "inf": "Infinity", "-inf": "-Infinity"}[str(spread)]
+        assert row["nonfinite_values"] == [
+            {
+                "path": ["candidates", 0, "evidence", index, "metadata", "spread_bps"],
+                "kind": kind,
+            }
+        ]
     assert entry["state"] == candidate.state.value
     assert set(entry["risk"]["blockers"]) == expected_blockers
     assert entry["priority_score"] == candidate.priority_score
+
+
+def _reject_constant(token: str) -> None:
+    raise ValueError(f"nonstandard JSON constant: {token}")
+
+
+def test_journal_preserves_nonfinite_paths_and_legacy_lines(tmp_path):
+    journal = DecisionJournal(tmp_path / "review.jsonl")
+    legacy = b'{"legacy":NaN}\n'
+    journal.path.write_bytes(legacy)
+    clean = DecisionSnapshot(as_of=NOW, market_context={"zero": 0.0, "real_null": None})
+    journal.append(clean)
+    before = journal.path.read_bytes()
+    nested = {
+        "a/b": [float("nan"), {"~": float("inf")}, (float("-inf"), 0.0)],
+        "real_null": None,
+        "literal": "NaN",
+        "timestamp": NOW,
+        "nonfinite_values": "provider-owned metadata",
+    }
+    snapshot = DecisionSnapshot(as_of=NOW, market_context=nested)
+    journal.append(snapshot)
+    journal.append(clean)
+
+    assert journal.path.read_bytes().startswith(before)
+    old, first, faulty, last = journal.path.read_text(encoding="utf-8").splitlines()
+    assert old.encode() + b"\n" == legacy
+    with pytest.raises(ValueError, match="nonstandard JSON"):
+        json.loads(old, parse_constant=_reject_constant)
+    healthy = json.loads(first, parse_constant=_reject_constant)
+    assert json.loads(last, parse_constant=_reject_constant) == healthy
+    assert "nonfinite_values" not in healthy
+    row = json.loads(faulty, parse_constant=_reject_constant)
+    assert row["market_context"] == {
+        "a/b": [None, {"~": None}, [None, 0.0]],
+        "real_null": None,
+        "literal": "NaN",
+        "timestamp": NOW.isoformat(),
+        "nonfinite_values": "provider-owned metadata",
+    }
+    assert row["as_of"] == NOW.isoformat()
+    assert row["nonfinite_values"] == [
+        {"path": ["market_context", "a/b", 0], "kind": "NaN"},
+        {"path": ["market_context", "a/b", 1, "~"], "kind": "Infinity"},
+        {"path": ["market_context", "a/b", 2, 0], "kind": "-Infinity"},
+    ]
+    entries = journal.entries()
+    assert math.isnan(entries[0]["legacy"])
+    assert entries[1:] == (healthy, row, healthy)
+    assert math.isnan(nested["a/b"][0])
+
+
+def test_journal_rejects_ambiguous_serialized_paths_without_appending(tmp_path):
+    journal = DecisionJournal(tmp_path / "review.jsonl")
+    journal.append(DecisionSnapshot(as_of=NOW, market_context={}))
+    before = journal.path.read_bytes()
+    snapshot = DecisionSnapshot(
+        as_of=NOW, market_context={"nested": {1: float("nan"), "1": 7}},
+    )
+    with pytest.raises(ValueError, match="duplicate journal key"):
+        journal.append(snapshot)
+    assert journal.path.read_bytes() == before
