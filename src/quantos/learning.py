@@ -7,9 +7,10 @@ retrieval, orchestration and scoring remain responsibilities of upstream adapter
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, timedelta
 from enum import StrEnum
 from math import isfinite
+from typing import Self
 
 
 class KnowledgeKind(StrEnum):
@@ -83,6 +84,65 @@ class EvidenceLink:
 
 
 @dataclass(frozen=True, slots=True)
+class SessionCloseHorizon:
+    """Count scheduled regular closes after registration using a pinned upstream calendar."""
+
+    calendar_name: str
+    sessions: int
+    calendar_version: str
+    schedule_start: date
+    schedule_end: date
+
+    def __post_init__(self) -> None:
+        _text(self.calendar_name, self.calendar_version)
+        if type(self.sessions) is not int or self.sessions < 1:
+            raise ValueError("sessions must be a positive integer")
+        if type(self.schedule_start) is not date or type(self.schedule_end) is not date:
+            raise ValueError("schedule coverage requires session dates")
+        if self.schedule_start >= self.schedule_end:
+            raise ValueError("schedule coverage must have distinct ordered dates")
+
+    @classmethod
+    def from_calendar(
+        cls, calendar_name: str, sessions: int, *,
+        start: date | None = None, end: date | None = None,
+    ) -> Self:
+        """Capture the provider's actual version and coverage, including its defaults."""
+        import exchange_calendars as xcals
+
+        calendar = xcals.get_calendar(calendar_name, start=start, end=end)
+        return cls(
+            calendar.name, sessions, xcals.__version__,
+            start if start is not None else calendar.first_session.date(),
+            end if end is not None else calendar.last_session.date(),
+        )
+
+    def target_after(self, registered_at: datetime) -> datetime:
+        """Resolve once at registration. The first eligible close is strictly in the future."""
+        import exchange_calendars as xcals
+
+        instant = _utc(registered_at)
+        if xcals.__version__ != self.calendar_version:
+            raise ValueError("calendar version differs from the pre-registered horizon")
+        calendar = xcals.get_calendar(
+            self.calendar_name, start=self.schedule_start, end=self.schedule_end,
+        )
+        # An omitted earlier session may close on the following local date on overnight venues.
+        first_close_date = self.schedule_start + timedelta(days=calendar.close_offset)
+        if (
+            instant < calendar.first_session_open
+            and instant.astimezone(calendar.tz).date() < first_close_date
+        ):
+            raise ValueError("registration precedes schedule coverage")
+        closes = calendar.closes
+        first = int(closes.searchsorted(instant, side="right"))
+        target = first + self.sessions - 1
+        if target >= len(closes):
+            raise ValueError("schedule coverage has too few future closes for this horizon")
+        return closes.iloc[target].to_pydatetime().astimezone(UTC)
+
+
+@dataclass(frozen=True, slots=True)
 class HypothesisSpec:
     """A falsifiable, versioned research specification frozen before evaluation."""
 
@@ -92,12 +152,13 @@ class HypothesisSpec:
     claim: str
     mechanism: str
     instruments: tuple[str, ...]
-    horizon_seconds: int
+    horizon_seconds: int | None
     signal_definition: str
     benchmark: str
     falsification_rule: str
     counterarguments: tuple[str, ...]
     evidence: tuple[EvidenceLink, ...]
+    session_horizon: SessionCloseHorizon | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "registered_at", _utc(self.registered_at))
@@ -109,8 +170,13 @@ class HypothesisSpec:
         _strings(self.counterarguments)
         if type(self.version) is not int or self.version < 1:
             raise ValueError("version must be a positive integer")
-        if type(self.horizon_seconds) is not int or self.horizon_seconds < 1:
-            raise ValueError("horizon_seconds must be a positive integer")
+        if self.session_horizon is None:
+            if type(self.horizon_seconds) is not int or self.horizon_seconds < 1:
+                raise ValueError("horizon_seconds must be a positive integer")
+        elif self.horizon_seconds is not None or not isinstance(
+            self.session_horizon, SessionCloseHorizon,
+        ):
+            raise ValueError("a session horizon must replace the elapsed horizon")
         if not isinstance(self.evidence, tuple) or not self.evidence:
             raise ValueError("evidence must be a non-empty immutable tuple")
         if any(not isinstance(item, EvidenceLink) for item in self.evidence):
@@ -146,7 +212,13 @@ class ForecastRegistration:
             raise TypeError("hypothesis must be a HypothesisSpec")
         if self.registered_at < self.hypothesis.registered_at:
             raise ValueError("forecast cannot precede its hypothesis")
-        if (self.target_end - self.registered_at).total_seconds() != self.hypothesis.horizon_seconds:
+        rule = self.hypothesis.session_horizon
+        if rule is None:
+            elapsed = (self.target_end - self.registered_at).total_seconds()
+            matches = elapsed == self.hypothesis.horizon_seconds
+        else:
+            matches = self.target_end == rule.target_after(self.registered_at)
+        if not matches:
             raise ValueError("target_end must match the pre-registered horizon")
         if isinstance(self.probability, bool) or not isfinite(self.probability):
             raise ValueError("probability must be finite")
