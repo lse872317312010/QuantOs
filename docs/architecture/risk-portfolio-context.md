@@ -35,7 +35,7 @@ Current generic providers:
 
 Consumes DATA_QUALITY evidence.
 
-- missing quality evidence generates a warning;
+- missing quality evidence blocks the candidate;
 - degraded evidence raises risk;
 - critically unusable/unavailable source evidence creates a blocker.
 
@@ -44,10 +44,13 @@ Consumes DATA_QUALITY evidence.
 Consumes LIQUIDITY evidence and evaluates top-of-book spread.
 
 The default thresholds are configurable. Wide spreads can produce warnings or hard blockers.
+When this check is configured, missing spread evidence blocks the candidate.
 
 ### ConcentrationRiskProvider
 
 Uses portfolio context to measure the existing absolute portfolio weight of the instrument.
+Enabling the check requires a portfolio available by the review cutoff. A market-only review
+can configure quality and liquidity checks without enabling concentration analysis.
 
 The current provider is intentionally simple. Correlation, sector/theme crowding and look-through
 exposures are later extensions.
@@ -60,7 +63,9 @@ exposures are later extensions.
 - each named dimension keeps its maximum score;
 - blockers are unioned;
 - warnings are unioned;
-- one provider failure does not discard valid risk results from other providers.
+- every configured risk check must return an assessment. A failure blocks the affected
+  instrument and names the failed provider. Completed dimensions remain visible. An empty
+  provider set or missing per-instrument assessment also blocks promotion.
 
 This design avoids the dangerous behavior where a low-risk dimension averages away a critical
 blocker.

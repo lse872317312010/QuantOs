@@ -34,6 +34,7 @@ class BStocksBasisEvidenceProvider:
         snapshot = context.get("snapshot")
         if not isinstance(snapshot, MarketSnapshot):
             raise TypeError("context['snapshot'] must be a MarketSnapshot")
+        snapshot.require_for_review(instrument, as_of)
 
         required = ("book_bid", "book_ask", "reference_price")
         if any(snapshot.values.get(key) is None for key in required):
@@ -76,7 +77,7 @@ class BStocksBasisEvidenceProvider:
                 domain=EvidenceDomain.MICROSTRUCTURE,
                 source=self.name,
                 summary=f"{stance} convergence edge {edge_bps:.2f} bps",
-                observed_at=as_of,
+                observed_at=snapshot.as_of,
                 confidence=confidence,
                 directional_score=directional_score,
                 metadata={

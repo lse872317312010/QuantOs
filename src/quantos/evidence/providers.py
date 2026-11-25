@@ -17,10 +17,11 @@ def _as_float(value: Any) -> float:
     return float(value)
 
 
-def _snapshot(context: dict[str, Any]) -> MarketSnapshot:
+def _snapshot(context: dict[str, Any], instrument: str, as_of: datetime) -> MarketSnapshot:
     value = context.get("snapshot")
     if not isinstance(value, MarketSnapshot):
         raise TypeError("context['snapshot'] must be a MarketSnapshot")
+    value.require_for_review(instrument, as_of)
     return value
 
 
@@ -36,7 +37,7 @@ class DataQualityEvidenceProvider:
         as_of: datetime,
         context: dict[str, Any],
     ) -> Sequence[Evidence]:
-        snapshot = _snapshot(context)
+        snapshot = _snapshot(context, instrument, as_of)
         evidence: list[Evidence] = []
 
         for report in snapshot.quality:
@@ -52,7 +53,7 @@ class DataQualityEvidenceProvider:
                     domain=EvidenceDomain.DATA_QUALITY,
                     source=report.source_id,
                     summary=f"{report.source_id} data quality is {report.state.value}",
-                    observed_at=as_of,
+                    observed_at=report.as_of,
                     confidence=confidence,
                     directional_score=0.0,
                     metadata={
@@ -91,7 +92,7 @@ class TopOfBookLiquidityEvidenceProvider:
         as_of: datetime,
         context: dict[str, Any],
     ) -> Sequence[Evidence]:
-        snapshot = _snapshot(context)
+        snapshot = _snapshot(context, instrument, as_of)
         bid_raw = snapshot.values.get(self.bid_field)
         ask_raw = snapshot.values.get(self.ask_field)
         if bid_raw is None or ask_raw is None:
@@ -121,7 +122,7 @@ class TopOfBookLiquidityEvidenceProvider:
                 domain=EvidenceDomain.LIQUIDITY,
                 source=self._source,
                 summary=f"top-of-book spread {spread_bps:.2f} bps",
-                observed_at=as_of,
+                observed_at=snapshot.as_of,
                 confidence=confidence,
                 directional_score=0.0,
                 metadata={
@@ -162,7 +163,7 @@ class ZScoreAnomalyEvidenceProvider:
         as_of: datetime,
         context: dict[str, Any],
     ) -> Sequence[Evidence]:
-        snapshot = _snapshot(context)
+        snapshot = _snapshot(context, instrument, as_of)
         raw = snapshot.values.get(self.field)
         if raw is None:
             return ()

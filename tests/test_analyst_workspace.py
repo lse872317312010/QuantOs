@@ -1,8 +1,11 @@
 from collections.abc import Sequence
-from datetime import UTC, datetime
+from dataclasses import replace
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from quantos.contracts import Evidence, EvidenceDomain, RiskAssessment
+import pytest
+
+from quantos.contracts import DecisionState, Evidence, EvidenceDomain, RiskAssessment
 from quantos.decision import DecisionJournal, RuleBasedDecisionSynthesizer
 from quantos.evidence import EvidenceEngine
 from quantos.risk import RiskEngine
@@ -99,3 +102,56 @@ def test_markdown_report_exposes_evidence_risk_and_human_review_boundary(tmp_pat
     assert "AAA positive signal" in report
     assert "human review only" in report
     assert "regime: NORMAL" in report
+
+
+@pytest.mark.parametrize("required", [True, False])
+def test_review_isolates_future_provider_output_and_journals_required_failure(tmp_path, required):
+    class RevisedSignal(SignalProvider):
+        name = "revision"
+
+        def collect_evidence(self, **kwargs):
+            (valid,) = super().collect_evidence(**kwargs)
+            return (valid, replace(valid, available_at=NOW + timedelta(seconds=1), summary="late"))
+
+    journal = DecisionJournal(tmp_path / "review.jsonl")
+    engine = AnalystReviewEngine(
+        evidence_engine=EvidenceEngine(
+            (SignalProvider(), RevisedSignal()), required_providers=("revision",) if required else (),
+        ),
+        risk_engine=RiskEngine((TestRiskProvider(),)),
+        synthesizer=RuleBasedDecisionSynthesizer(), journal=journal,
+    )
+    session = engine.review(instruments=("X",), as_of=NOW, context_by_instrument={})
+    candidate = session.snapshot.candidates[0]
+    assert len(candidate.evidence) == 1
+    assert session.failures[0].provider == "revision"
+    assert candidate.state is (DecisionState.BLOCKED if required else DecisionState.CANDIDATE)
+    assert journal.entries()[0]["candidates"][0]["state"] == candidate.state.value
+    assert any("revision" in note for note in journal.entries()[0]["notes"])
+    if required:
+        assert candidate.priority_score == 0
+        assert any("revision" in reason for reason in candidate.risk.blockers)
+    assert "late" not in [item.summary for item in candidate.evidence]
+
+
+def test_failed_risk_check_blocks_while_retaining_other_assessments(tmp_path):
+    class BrokenRisk:
+        name = "exposure"
+
+        def assess(self, **kwargs):
+            raise RuntimeError("feed offline")
+
+    journal = DecisionJournal(tmp_path / "review.jsonl")
+    engine = AnalystReviewEngine(
+        evidence_engine=EvidenceEngine((SignalProvider(),)),
+        risk_engine=RiskEngine((BrokenRisk(), TestRiskProvider())),
+        synthesizer=RuleBasedDecisionSynthesizer(), journal=journal,
+    )
+    session = engine.review(
+        instruments=("X", "Y"), as_of=NOW, context_by_instrument={"Y": {"blocker": "data stale"}},
+    )
+    assert all(item.state is DecisionState.BLOCKED for item in session.snapshot.candidates)
+    assert all(item.priority_score == 0 for item in session.snapshot.candidates)
+    assert "feed offline" in render_markdown(session)
+    assert any("exposure" in item for item in journal.entries()[0]["alerts"])
+    assert "data stale" in session.snapshot.candidates[1].risk.blockers
