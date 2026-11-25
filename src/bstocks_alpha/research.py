@@ -6,6 +6,7 @@ import argparse
 import json
 from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import exchange_calendars as xcals
 import polars as pl
@@ -13,16 +14,10 @@ import polars as pl
 from .promotion import research_promotion_gate
 from .robustness import threshold_stability_report
 from .uncertainty import daily_net_summary, date_cluster_bootstrap
-from .validation import (
-    LABEL_WINDOW_POLICY,
-    NY,
-    CostModel,
-    apply_cost_model,
-    chronological_holdout,
-    summarize_holdout,
-)
+from .validation import CostModel, apply_cost_model, chronological_holdout, summarize_holdout
 from .walkforward import summarize_walk_forward, walk_forward_threshold_report
 
+NY = ZoneInfo("America/New_York")
 REQUIRED_COLUMNS = {
     "observed_timestamp_ms",
     "symbol",
@@ -215,7 +210,6 @@ def forward_outcomes(
     if signals.is_empty():
         return signals.with_columns(
             pl.lit(None, dtype=pl.Int64).alias("horizon_s"),
-            pl.lit(None, dtype=pl.Int64).alias("label_end_timestamp_ms"),
             pl.lit(None, dtype=pl.Float64).alias("forward_trade_return_bps"),
         ).head(0)
 
@@ -230,7 +224,7 @@ def forward_outcomes(
     outcomes: list[pl.DataFrame] = []
 
     for horizon_s in horizons_s:
-        future_timestamp = "label_end_timestamp_ms"
+        future_timestamp = "_future_timestamp_ms"
         future_frame = (
             future.rename(
                 {
@@ -441,15 +435,6 @@ def analyze_file(
     threshold_summary.write_csv(target / "threshold_stability.csv")
     walk_forward_folds.write_csv(target / "walk_forward_folds.csv")
     walk_forward_summary.write_csv(target / "walk_forward_summary.csv")
-    # A regenerated historical gate first becomes usable when this run produces it.
-    available_at = max(
-        datetime.now(UTC),
-        datetime.fromtimestamp(signals["observed_timestamp_ms"].max() / 1000, tz=UTC),
-    ).isoformat()
-    promotion_gate = promotion_gate.with_columns(
-        pl.repeat(LABEL_WINDOW_POLICY, pl.len()).alias("label_window_policy"),
-        pl.repeat(available_at, pl.len()).alias("available_at"),
-    )
     promotion_gate.write_csv(target / "promotion_gate.csv")
     (target / "analysis_config.json").write_text(
         json.dumps(
@@ -464,8 +449,6 @@ def analyze_file(
                 "short_borrow_bps_per_day": cost_model.short_borrow_bps_per_day,
                 "test_fraction": test_fraction,
                 "holdout_cutoff_market_date": split.cutoff_date,
-                "label_window_policy": LABEL_WINDOW_POLICY,
-                "holdout_purged_label_rows": outcomes["sample"].eq("PURGED").sum(),
                 "train_market_dates": split.train_dates,
                 "test_market_dates": split.test_dates,
                 "bootstrap_resamples": bootstrap_resamples,

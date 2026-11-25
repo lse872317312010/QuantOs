@@ -29,16 +29,8 @@ Default configuration:
     purge dates: 1
     expanding train window: yes
 
-The purge gap excludes signal dates. Both holdout and walk-forward also check the timestamp of
-the quote used to settle each label (`label_end_timestamp_ms`). A TRAIN exit must precede
-midnight in New York at the start of the first TEST date. A TEST exit must precede midnight
-after its last date. Equality crosses the boundary. A quote can arrive after the intended horizon,
-and a New York date can have 23 or 25 hours.
-
-The outcome Parquet keeps crossing rows as `PURGED`. Unmatched signals retain their sample
-and null return for coverage. The pooled forward summary describes all matches. Threshold
-screening and daily bootstrap inputs exclude purged rows. Each rolling fold recalculates
-eligibility and reports `purged_label_rows`. The holdout count is in `analysis_config.json`.
+The purge date separates training from testing and reduces boundary leakage from labels or state
+that can overlap adjacent dates.
 
 ## Outputs
 
@@ -48,16 +40,6 @@ eligibility and reports `purged_label_rows`. The holdout count is in `analysis_c
 The fold file contains the complete selection and OOS result for every threshold. The summary only
 aggregates rows whose `stable_train_candidate` flag was true before the corresponding test window
 was observed.
-
-### Replaying earlier runs
-
-Retain the original files for audit. Re-run `bstocks-analyze` on the original observations with
-the same options and a fresh `--output-dir` before using any earlier holdout, bootstrap, threshold,
-walk-forward or promotion output for review. Older outcome Parquet files carrying the matched
-`_future_timestamp_ms` can also be repartitioned directly. A labeled return with an unknown
-endpoint cannot enter the split. Promotion CSVs from the updated pipeline carry
-`label_window_policy` and their UTC availability time. The evidence provider rejects unversioned
-gates and exposes a regenerated gate only from its availability time onward.
 
 ## Interpretation
 

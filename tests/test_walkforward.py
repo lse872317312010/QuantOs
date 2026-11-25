@@ -1,6 +1,3 @@
-from datetime import date, datetime, time
-from zoneinfo import ZoneInfo
-
 import polars as pl
 import pytest
 
@@ -13,10 +10,8 @@ def outcome(
     *,
     edge_bps: float = 30.0,
 ) -> dict[str, object]:
-    end = datetime.combine(date.fromisoformat(market_date), time(12), ZoneInfo("America/New_York"))
     return {
         "market_date": market_date,
-        "label_end_timestamp_ms": int(end.timestamp()) * 1000,
         "sample": "IGNORED",
         "horizon_s": 5,
         "market_session": "REGULAR",
@@ -60,24 +55,6 @@ def test_walk_forward_returns_empty_when_history_is_too_short() -> None:
         purged_size_dates=1,
     )
     assert result.is_empty()
-
-
-def test_each_fold_checks_realized_exits_even_across_the_purge_gap() -> None:
-    rows = [outcome(f"2026-09-{day:02d}", float(day)) for day in range(1, 11)]
-    # Fold 1 trains on 1-3 and tests on 5-6. The last TRAIN and TEST exits cross their bounds.
-    rows[2]["label_end_timestamp_ms"] = rows[4]["label_end_timestamp_ms"]
-    rows[5]["label_end_timestamp_ms"] = rows[6]["label_end_timestamp_ms"]
-    report = walk_forward_threshold_report(
-        pl.DataFrame(rows), thresholds_bps=(5,), train_size_dates=3, test_size_dates=2,
-        purged_size_dates=1, min_train_dates=2,
-    )
-    first = report.filter(pl.col("fold") == 1).row(0, named=True)
-    assert first["purged_label_rows"] == 2
-    assert first["train_matched_trades"] == 2
-    assert first["test_matched_trades"] == 1
-    # A previously excluded label can be known when a later fold opens.
-    second = report.filter(pl.col("fold") == 2).row(0, named=True)
-    assert second["train_matched_trades"] == 5
 
 
 def test_walk_forward_summary_uses_only_train_selected_candidates() -> None:
