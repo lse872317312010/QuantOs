@@ -157,7 +157,24 @@ class ConcentrationRiskProvider:
         if portfolio.as_of > as_utc(as_of):
             raise ValueError("portfolio snapshot is newer than the risk cutoff")
 
+        if (
+            not math.isfinite(portfolio.total_equity)
+            or portfolio.total_equity <= 0
+            or any(not math.isfinite(position.market_value) for position in portfolio.positions)
+        ):
+            return RiskAssessment(
+                overall_score=1.0,
+                blockers=("invalid portfolio valuation",),
+                dimensions={"concentration": 1.0},
+            )
+
         weight = abs(portfolio.weight(instrument))
+        if not math.isfinite(weight):
+            return RiskAssessment(
+                overall_score=1.0,
+                blockers=("invalid portfolio concentration weight",),
+                dimensions={"concentration": 1.0},
+            )
         risk_score = min(1.0, weight / self.blocker_weight)
         blockers: tuple[str, ...] = ()
         warnings: tuple[str, ...] = ()
