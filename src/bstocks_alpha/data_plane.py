@@ -32,13 +32,26 @@ def register_basis_csv(
     con = duckdb.connect()
     try:
         escaped_source = str(source).replace("'", "''")
+        columns = con.read_csv(str(source), header=True).columns
+        # The original REST collector stamped the batch before fetching each
+        # reference. Its precise availability cannot be recovered from the file.
+        legacy_sample = "CASE WHEN book_update_id IS NOT NULL THEN observed_timestamp_ms END"
+        available_ms = (
+            f"COALESCE(CAST(available_timestamp_ms AS BIGINT), {legacy_sample})"
+            if "available_timestamp_ms" in columns else legacy_sample
+        )
         con.execute(
             f"""
             CREATE TEMP VIEW basis AS
             SELECT
                 *,
                 symbol || '.BINANCE' AS instrument_id,
-                to_timestamp(observed_timestamp_ms / 1000.0) AS ts_observed,
+                row_number() OVER () AS capture_sequence,
+                to_timestamp((observed_timestamp_ms - book_age_ms) / 1000.0) AS ts_book,
+                {available_ms} AS known_ms,
+                CASE WHEN known_ms IS NOT NULL THEN
+                    to_timestamp(greatest(known_ms, observed_timestamp_ms) / 1000.0)
+                END AS ts_available,
                 to_timestamp(reference_timestamp_ms / 1000.0) AS ts_reference
             FROM read_csv_auto('{escaped_source}', header = true)
             """
@@ -48,7 +61,9 @@ def register_basis_csv(
             COPY (
                 SELECT
                     instrument_id,
-                    ts_observed AS ts_event,
+                    ts_book AS ts_event,
+                    ts_available,
+                    capture_sequence,
                     bid,
                     ask,
                     mid,
@@ -56,7 +71,7 @@ def register_basis_csv(
                     book_age_ms,
                     book_update_id
                 FROM basis
-                ORDER BY ts_observed, instrument_id
+                ORDER BY ts_book, instrument_id
             ) TO ? (FORMAT PARQUET)
             """,
             [str(book_path)],
@@ -67,6 +82,8 @@ def register_basis_csv(
                 SELECT
                     instrument_id,
                     ts_reference AS ts_event,
+                    ts_available,
+                    capture_sequence,
                     reference_price,
                     reference_lag_ms,
                     reference_receive_age_ms,
@@ -114,6 +131,7 @@ def register_basis_csv(
             source_type="parquet",
             expected_interval_s=1.0,
             description="Best bid/ask observations extracted from paired bStocks collection.",
+            metadata={"availability_column": "ts_available", "sequence_column": "capture_sequence"},
         ),
         parquet_path=book_path,
     )
@@ -125,6 +143,7 @@ def register_basis_csv(
             source_type="parquet",
             expected_interval_s=1.0,
             description="Reference-price observations extracted from paired bStocks collection.",
+            metadata={"availability_column": "ts_available", "sequence_column": "capture_sequence"},
         ),
         parquet_path=reference_path,
     )

@@ -1,7 +1,38 @@
+from datetime import datetime
+
 import pytest
 
 from bstocks_alpha.snapshot import _observation
 from bstocks_alpha.universe import BStockInstrument
+
+
+def test_rest_snapshot_records_each_pair_only_after_reference_returns(monkeypatch):
+    from bstocks_alpha import snapshot
+
+    class Clock:
+        def __init__(self):
+            self.ms = 1000
+
+        def now(self, tz):
+            return datetime.fromtimestamp(self.ms / 1000, tz)
+
+    clock = Clock()
+    monkeypatch.setattr(snapshot, "datetime", clock)
+    monkeypatch.setattr(snapshot, "book_tickers", lambda client: [
+        {"symbol": symbol, "bidPrice": 10, "askPrice": 12} for symbol in ("A", "B")
+    ])
+
+    def delayed_reference(symbol, client):
+        clock.ms += 1000
+        return {"referencePrice": 11, "timestamp": 900}
+
+    monkeypatch.setattr(snapshot, "reference_price", delayed_reference)
+    batch = snapshot.collect_basis_snapshot([
+        BStockInstrument(symbol, symbol, "USDT", "TRADING", 1) for symbol in ("A", "B")
+    ])
+    assert [row.observed_timestamp_ms for row in batch.observations] == [2000, 3000]
+    assert [row.available_timestamp_ms for row in batch.observations] == [2000, 3000]
+    assert [row.book_age_ms for row in batch.observations] == [1000, 2000]
 
 
 def test_observation_uses_midpoint_and_reference_price() -> None:

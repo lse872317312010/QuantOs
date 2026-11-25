@@ -34,6 +34,8 @@ def test_live_state_pairs_book_and_reference_events() -> None:
     assert item.reference_receive_age_ms == 100
     assert item.reference_lag_ms == 300
     assert item.long_convergence_bps == pytest.approx(100.0)
+    assert item.available_timestamp_ms == 1200
+    assert state.observations([instrument()], observed=datetime.fromtimestamp(1.05, tz=UTC)) == []
 
 
 def test_live_state_requires_both_event_types() -> None:
