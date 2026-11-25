@@ -16,13 +16,23 @@ The model is additive in basis points:
     total_cost_bps =
         2 * taker_fee_bps_per_side
         + 2 * slippage_bps_per_side
-        + short_borrow_bps_per_day * horizon_seconds / 86400  # SHORT only
+        + short_borrow_bps_per_day * matched_holding_ms / 86400000  # SHORT only
 
     net_forward_trade_return_bps =
         gross_forward_trade_return_bps - total_cost_bps
 
 Spread is not deducted again: the gross forward return already enters at the current ask for LONG
 or current bid for SHORT and exits at the future opposite side of the book.
+
+Financing runs from the entry observation to the matched exit quote. A one-second target
+filled 1.5 seconds late incurs 2.5 seconds of modeled short borrow. Older labels can recover
+this duration from their recorded match lag. A missing or inconsistent duration leaves
+positive-rate short costs and net returns null. Unmatched labels stay in coverage counts with
+null total cost. A matched long or a zero borrow rate incurs zero borrow.
+
+The run configuration records `short_borrow_time_basis`. Preserve previous outputs that used
+the requested horizon. Recompute affected short-cost comparisons from the original observations
+in a separate output directory before using them for validation.
 
 The default taker fee assumption is 10 bps per side. This corresponds to the Binance regular-user
 standard Spot taker rate of 0.100% observed on the Binance fee page on 2026-09-30. Actual fees can

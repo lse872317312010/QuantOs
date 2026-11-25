@@ -458,6 +458,7 @@ def analyze_file(
                 "taker_fee_bps_per_side": cost_model.taker_fee_bps_per_side,
                 "slippage_bps_per_side": cost_model.slippage_bps_per_side,
                 "short_borrow_bps_per_day": cost_model.short_borrow_bps_per_day,
+                "short_borrow_time_basis": "matched_exit_minus_observation_ms",
                 "test_fraction": test_fraction,
                 "holdout_cutoff_market_date": split.cutoff_date,
                 "label_endpoint_column": MATCHED_EXIT_MS,
