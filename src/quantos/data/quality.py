@@ -47,8 +47,13 @@ def assess_data_quality(
 
     # Never turn a future observation into a healthy zero-age observation.
     if last_event_at > as_of:
-        return DataQualityReport.unavailable(
-            source.source_id, as_of, "last event is after as_of"
+        return DataQualityReport(
+            source_id=source.source_id,
+            as_of=as_of,
+            state=DataQualityState.UNAVAILABLE,
+            freshness_s=None,
+            completeness=None,
+            issues=("last event is after as_of",),
         )
 
     freshness_s = (as_of - last_event_at).total_seconds()
