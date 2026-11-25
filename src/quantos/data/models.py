@@ -102,6 +102,13 @@ class DataQualityReport:
     issues: tuple[str, ...] = ()
     metadata: dict[str, Any] = field(default_factory=dict)
 
+    @classmethod
+    def unavailable(cls, source_id: str, as_of: datetime, reason: str) -> DataQualityReport:
+        return cls(
+            source_id=source_id, as_of=as_of, state=DataQualityState.UNAVAILABLE,
+            freshness_s=None, completeness=None, issues=(reason,),
+        )
+
     def __post_init__(self) -> None:
         object.__setattr__(self, "as_of", as_utc(self.as_of))
         if self.last_event_at is not None:

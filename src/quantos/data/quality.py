@@ -22,8 +22,6 @@ def assess_data_quality(
     as_of = as_utc(as_of)
     if last_event_at is not None:
         last_event_at = as_utc(last_event_at)
-        if last_event_at > as_of:
-            raise ValueError("last event is newer than the quality cutoff")
     if observed_count < 0:
         raise ValueError("observed_count must be non-negative")
     if expected_count is not None and expected_count < 0:
@@ -43,6 +41,12 @@ def assess_data_quality(
             freshness_s=None,
             completeness=completeness,
             issues=("no observations",),
+        )
+
+    # Never turn a future observation into a healthy zero-age observation.
+    if last_event_at > as_of:
+        return DataQualityReport.unavailable(
+            source.source_id, as_of, "last event is after as_of"
         )
 
     freshness_s = (as_of - last_event_at).total_seconds()
