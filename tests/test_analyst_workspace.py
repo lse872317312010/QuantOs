@@ -8,7 +8,8 @@ import pytest
 from quantos.contracts import DecisionState, Evidence, EvidenceDomain, RiskAssessment
 from quantos.decision import DecisionJournal, RuleBasedDecisionSynthesizer
 from quantos.evidence import EvidenceEngine
-from quantos.risk import RiskEngine
+from quantos.portfolio import PortfolioSnapshot, Position
+from quantos.risk import ConcentrationRiskProvider, LiquidityRiskProvider, RiskEngine
 from quantos.workspace import AnalystReviewEngine, render_markdown
 
 NOW = datetime(2026, 11, 24, tzinfo=UTC)
@@ -155,3 +156,60 @@ def test_failed_risk_check_blocks_while_retaining_other_assessments(tmp_path):
     assert "feed offline" in render_markdown(session)
     assert any("exposure" in item for item in journal.entries()[0]["alerts"])
     assert "data stale" in session.snapshot.candidates[1].risk.blockers
+
+
+@pytest.mark.parametrize(
+    "spread, equity, expected_blockers",
+    [
+        (-1.0, 1000.0, {"invalid liquidity spread"}),
+        (5.0, float("inf"), {"invalid portfolio valuation"}),
+        (-1.0, float("inf"), {"invalid liquidity spread", "invalid portfolio valuation"}),
+        (5.0, 1000.0, set()),
+    ],
+)
+def test_independent_liquidity_and_portfolio_veto_reaches_journal(
+    tmp_path, spread, equity, expected_blockers,
+):
+    class LiquiditySignal:
+        name = "liquidity"
+
+        def collect_evidence(self, **kwargs):
+            return (
+                Evidence(
+                    domain=EvidenceDomain.LIQUIDITY,
+                    source=self.name,
+                    summary="quoted spread",
+                    observed_at=NOW,
+                    confidence=1.0,
+                    metadata={"spread_bps": spread},
+                ),
+            )
+
+    portfolio = PortfolioSnapshot(
+        as_of=NOW, total_equity=equity,
+        positions=(Position("X", 1.0, 10.0, "USDT"),),
+    )
+    journal = DecisionJournal(tmp_path / "review.jsonl")
+    engine = AnalystReviewEngine(
+        evidence_engine=EvidenceEngine((SignalProvider(), LiquiditySignal())),
+        risk_engine=RiskEngine((LiquidityRiskProvider(), ConcentrationRiskProvider())),
+        synthesizer=RuleBasedDecisionSynthesizer(),
+        journal=journal,
+    )
+    session = engine.review(
+        instruments=("X",), as_of=NOW,
+        context_by_instrument={"X": {"score": 1.0, "portfolio": portfolio}},
+    )
+    candidate = session.snapshot.candidates[0]
+    assert set(candidate.risk.blockers) == expected_blockers
+    assert set(candidate.risk.dimensions) == {"liquidity", "concentration"}
+    assert candidate.state is (DecisionState.BLOCKED if expected_blockers else DecisionState.CANDIDATE)
+    if expected_blockers:
+        assert candidate.priority_score == 0.0
+        assert candidate.risk.overall_score == 1.0
+    else:
+        assert candidate.priority_score > 0.0
+    entry = journal.entries()[0]["candidates"][0]
+    assert entry["state"] == candidate.state.value
+    assert set(entry["risk"]["blockers"]) == expected_blockers
+    assert entry["priority_score"] == candidate.priority_score
