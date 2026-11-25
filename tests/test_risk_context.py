@@ -168,3 +168,65 @@ def test_valid_liquidity_spread_boundaries(spread: float, blocked: bool, warned:
     assert bool(result.assessment.warnings) is warned
     assert result.assessment.overall_score == pytest.approx(min(1.0, spread / 75.0))
     assert result.failures == ()
+
+
+@pytest.mark.parametrize("equity", [float("nan"), float("inf")])
+def test_nonfinite_portfolio_equity_blocks_concentration(equity: float) -> None:
+    portfolio = PortfolioSnapshot(
+        as_of=NOW, total_equity=equity,
+        positions=(Position("X", 1.0, 100.0, "USDT"),),
+    )
+    result = RiskEngine((ConcentrationRiskProvider(),)).assess(
+        instrument="X", as_of=NOW, evidence=(), context={"portfolio": portfolio},
+    )
+    assert result.assessment.overall_score == 1.0
+    assert result.assessment.dimensions["concentration"] == 1.0
+    assert "invalid portfolio valuation" in result.assessment.blockers
+    assert result.failures == ()
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), -float("inf")])
+@pytest.mark.parametrize("instrument", ["X", "Y"])
+def test_nonfinite_position_value_blocks_concentration(value: float, instrument: str) -> None:
+    portfolio = PortfolioSnapshot(
+        as_of=NOW, total_equity=1000.0,
+        positions=(Position("X", 1.0, 100.0, "USDT"), Position(instrument, 1.0, value, "USDT")),
+    )
+    result = RiskEngine((ConcentrationRiskProvider(),)).assess(
+        instrument="X", as_of=NOW, evidence=(), context={"portfolio": portfolio},
+    )
+    assert result.assessment.overall_score == 1.0
+    assert result.assessment.dimensions["concentration"] == 1.0
+    assert "invalid portfolio valuation" in result.assessment.blockers
+    assert result.failures == ()
+
+
+def test_overflowing_portfolio_weight_blocks_concentration() -> None:
+    portfolio = PortfolioSnapshot(
+        as_of=NOW, total_equity=1e-308,
+        positions=(Position("X", 1.0, 1e308, "USDT"),),
+    )
+    result = RiskEngine((ConcentrationRiskProvider(),)).assess(
+        instrument="X", as_of=NOW, evidence=(), context={"portfolio": portfolio},
+    )
+    assert result.assessment.overall_score == 1.0
+    assert result.assessment.dimensions["concentration"] == 1.0
+    assert "invalid portfolio concentration weight" in result.assessment.blockers
+    assert result.failures == ()
+
+
+@pytest.mark.parametrize(
+    "value, blocked, warned", [(0.0, False, False), (-200.0, False, True), (350.0, True, False)],
+)
+def test_finite_portfolio_concentration_boundaries(value: float, blocked: bool, warned: bool) -> None:
+    portfolio = PortfolioSnapshot(
+        as_of=NOW, total_equity=1000.0,
+        positions=(Position("X", 1.0, value, "USDT"),),
+    )
+    result = RiskEngine((ConcentrationRiskProvider(),)).assess(
+        instrument="X", as_of=NOW, evidence=(), context={"portfolio": portfolio},
+    )
+    assert bool(result.assessment.blockers) is blocked
+    assert bool(result.assessment.warnings) is warned
+    assert result.assessment.overall_score == pytest.approx(min(1.0, abs(value) / 350.0))
+    assert result.failures == ()
