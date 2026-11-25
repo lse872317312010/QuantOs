@@ -8,7 +8,8 @@ import pytest
 from quantos.contracts import DecisionState, Evidence, EvidenceDomain, RiskAssessment
 from quantos.decision import DecisionJournal, RuleBasedDecisionSynthesizer
 from quantos.evidence import EvidenceEngine
-from quantos.risk import RiskEngine
+from quantos.portfolio import PortfolioSnapshot, Position
+from quantos.risk import ConcentrationRiskProvider, LiquidityRiskProvider, RiskEngine
 from quantos.workspace import AnalystReviewEngine, render_markdown
 
 NOW = datetime(2026, 11, 24, tzinfo=UTC)
@@ -155,3 +156,69 @@ def test_failed_risk_check_blocks_while_retaining_other_assessments(tmp_path):
     assert "feed offline" in render_markdown(session)
     assert any("exposure" in item for item in journal.entries()[0]["alerts"])
     assert "data stale" in session.snapshot.candidates[1].risk.blockers
+
+
+def test_financial_risk_veto_survives_strong_signal_and_journal(tmp_path):
+    class SpreadProvider:
+        name = "spread"
+
+        def collect_evidence(self, *, instrument, as_of, context):
+            return tuple(
+                Evidence(
+                    domain=EvidenceDomain.LIQUIDITY,
+                    source=f"book-{index}",
+                    summary="spread observation",
+                    observed_at=as_of,
+                    confidence=1.0,
+                    metadata={"spread_bps": spread},
+                )
+                for index, spread in enumerate(context["spreads"])
+            )
+
+    journal = DecisionJournal(tmp_path / "financial-risk.jsonl")
+    engine = AnalystReviewEngine(
+        evidence_engine=EvidenceEngine((SignalProvider(), SpreadProvider())),
+        risk_engine=RiskEngine((LiquidityRiskProvider(), ConcentrationRiskProvider())),
+        synthesizer=RuleBasedDecisionSynthesizer(),
+        journal=journal,
+    )
+    healthy = PortfolioSnapshot(as_of=NOW, total_equity=1000.0)
+    invalid = PortfolioSnapshot(
+        as_of=NOW, total_equity=float("inf"),
+        positions=(Position("BAD_PORTFOLIO", 1.0, 100.0, "USDT"),),
+    )
+    session = engine.review(
+        instruments=("HEALTHY", "BAD_SPREAD", "BAD_PORTFOLIO", "BOTH"),
+        as_of=NOW,
+        context_by_instrument={
+            "HEALTHY": {"spreads": (5.0,), "portfolio": healthy, "score": 1.0},
+            "BAD_SPREAD": {"spreads": (5.0, -1.0), "portfolio": healthy, "score": 1.0},
+            "BAD_PORTFOLIO": {"spreads": (5.0,), "portfolio": invalid, "score": 1.0},
+            "BOTH": {"spreads": (-1.0, 5.0), "portfolio": invalid, "score": 1.0},
+        },
+    )
+    expected = {
+        "HEALTHY": set(),
+        "BAD_SPREAD": {"invalid liquidity spread"},
+        "BAD_PORTFOLIO": {"invalid portfolio valuation"},
+        "BOTH": {"invalid liquidity spread", "invalid portfolio valuation"},
+    }
+    assert session.failures == ()
+    assert session.snapshot.candidates[0].instrument == "HEALTHY"
+    entries = journal.entries()
+    assert len(entries) == 1
+    saved = {row["instrument"]: row for row in entries[0]["candidates"]}
+    assert set(saved) == set(expected)
+    for candidate in session.snapshot.candidates:
+        blockers = expected[candidate.instrument]
+        assert candidate.decision_score == 1.0
+        assert set(candidate.risk.blockers) == blockers
+        assert set(saved[candidate.instrument]["risk"]["blockers"]) == blockers
+        assert saved[candidate.instrument]["state"] == candidate.state.value
+        if blockers:
+            assert candidate.state is DecisionState.BLOCKED
+            assert candidate.priority_score == saved[candidate.instrument]["priority_score"] == 0
+            assert candidate.risk.overall_score == 1.0
+        else:
+            assert candidate.state is DecisionState.CANDIDATE
+            assert candidate.priority_score > 0
