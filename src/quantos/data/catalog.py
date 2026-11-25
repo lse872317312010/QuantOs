@@ -251,6 +251,16 @@ class AnalyticalCatalog:
                     raise SourceAvailabilityError(
                         f"{source_id} needs a timezone-aware {clock} column for point-in-time reads"
                     )
+            # A source with a changed schema is unavailable for this projection,
+            # not a reason to discard other sources in the same snapshot.
+            required = set(columns or ())
+            if instrument_id is not None:
+                required.add(instrument_column)
+            missing = sorted(required.difference(schema))
+            if missing:
+                raise SourceAvailabilityError(
+                    f"{source_id} is missing requested fields: {', '.join(missing)}"
+                )
             order = [f"{timestamp_column} DESC", f"{availability} DESC"]
             if sequence is not None:
                 self._require_identifier(sequence)
