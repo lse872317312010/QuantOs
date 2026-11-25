@@ -7,7 +7,7 @@ retrieval, orchestration and scoring remain responsibilities of upstream adapter
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import StrEnum
 from math import isfinite
 
@@ -31,9 +31,11 @@ class ScoringStatus(StrEnum):
     READY = "READY"
 
 
-def _aware(value: datetime) -> None:
+def _utc(value: datetime) -> datetime:
+    """Normalize actual instants before comparing or subtracting them."""
     if not isinstance(value, datetime) or value.utcoffset() is None:
         raise ValueError("timestamps must be timezone-aware")
+    return value.astimezone(UTC)
 
 
 def _text(*values: str) -> None:
@@ -67,8 +69,8 @@ class EvidenceLink:
             c not in "0123456789abcdef" for c in self.content_sha256
         ):
             raise ValueError("content_sha256 must be a lowercase SHA-256 digest")
-        for value in (self.published_at, self.first_seen_at, self.recorded_at):
-            _aware(value)
+        for field in ("published_at", "first_seen_at", "recorded_at"):
+            object.__setattr__(self, field, _utc(getattr(self, field)))
         if self.recorded_at < self.first_seen_at:
             raise ValueError("recorded_at cannot precede first_seen_at")
         if not isinstance(self.kind, KnowledgeKind) or not isinstance(self.role, EvidenceRole):
@@ -98,7 +100,7 @@ class HypothesisSpec:
     evidence: tuple[EvidenceLink, ...]
 
     def __post_init__(self) -> None:
-        _aware(self.registered_at)
+        object.__setattr__(self, "registered_at", _utc(self.registered_at))
         _text(
             self.hypothesis_id, self.claim, self.mechanism, self.signal_definition,
             self.benchmark, self.falsification_rule,
@@ -138,8 +140,8 @@ class ForecastRegistration:
 
     def __post_init__(self) -> None:
         _text(self.forecast_id, self.event_definition)
-        _aware(self.registered_at)
-        _aware(self.target_end)
+        object.__setattr__(self, "registered_at", _utc(self.registered_at))
+        object.__setattr__(self, "target_end", _utc(self.target_end))
         if not isinstance(self.hypothesis, HypothesisSpec):
             raise TypeError("hypothesis must be a HypothesisSpec")
         if self.registered_at < self.hypothesis.registered_at:
@@ -165,8 +167,8 @@ class OutcomeObservation:
 
     def __post_init__(self) -> None:
         _text(self.forecast_id, self.source_uri, self.dataset_version)
-        _aware(self.target_end)
-        _aware(self.available_at)
+        object.__setattr__(self, "target_end", _utc(self.target_end))
+        object.__setattr__(self, "available_at", _utc(self.available_at))
         if self.available_at < self.target_end:
             raise ValueError("a finalized outcome cannot be available before its window closes")
         if type(self.occurred) is not bool:
@@ -180,7 +182,7 @@ def scoring_status(
     as_of: datetime,
 ) -> ScoringStatus:
     """Gate mature labels; use an upstream metric library for actual calibration scores."""
-    _aware(as_of)
+    as_of = _utc(as_of)
     if outcome is not None and (
         outcome.forecast_id != forecast.forecast_id or outcome.target_end != forecast.target_end
     ):

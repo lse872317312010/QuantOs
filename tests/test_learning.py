@@ -1,5 +1,6 @@
 from dataclasses import FrozenInstanceError, replace
 from datetime import UTC, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -156,3 +157,96 @@ def test_contradictions_are_kept_not_removed():
     assert h.evidence[1].role is EvidenceRole.CONTRADICTS
     assert replace(h, version=2).version == 2
     assert h.version == 1
+
+
+NY = ZoneInfo("America/New_York")
+
+
+def test_spring_forward_uses_elapsed_seconds_and_stores_utc():
+    start = datetime(2026, 3, 8, 1, 30, tzinfo=NY)
+    end = datetime(2026, 3, 8, 3, 30, tzinfo=NY)
+    h = hypothesis(registered_at=start)
+    f = forecast(hypothesis=h, registered_at=start, target_end=end)
+    assert h.registered_at == datetime(2026, 3, 8, 6, 30, tzinfo=UTC)
+    assert f.registered_at.tzinfo is UTC
+    assert f.target_end == datetime(2026, 3, 8, 7, 30, tzinfo=UTC)
+    assert f.target_end - f.registered_at == timedelta(hours=1)
+    with pytest.raises(ValueError, match="horizon"):
+        forecast(
+            hypothesis=replace(h, horizon_seconds=7200),
+            registered_at=start,
+            target_end=end,
+        )
+
+
+def test_fall_back_does_not_admit_premature_labels():
+    start = datetime(2026, 11, 1, 1, 30, tzinfo=NY, fold=0)
+    end = datetime(2026, 11, 1, 1, 30, tzinfo=NY, fold=1)
+    early = datetime(2026, 11, 1, 1, 45, tzinfo=NY, fold=0)
+    f = forecast(hypothesis=hypothesis(registered_at=start), registered_at=start, target_end=end)
+    assert f.target_end - f.registered_at == timedelta(hours=1)
+    with pytest.raises(ValueError, match="window closes"):
+        outcome(target_end=end, available_at=early)
+    o = outcome(target_end=end, available_at=end)
+    assert o.target_end.tzinfo is UTC
+    assert o.available_at.tzinfo is UTC
+    assert scoring_status(f, o, as_of=early) is ScoringStatus.PENDING_HORIZON
+    assert scoring_status(f, o, as_of=end) is ScoringStatus.READY
+
+
+def test_repeated_hour_evidence_availability_is_ordered_by_actual_instant():
+    early = datetime(2026, 11, 1, 1, 45, tzinfo=NY, fold=0)
+    late = datetime(2026, 11, 1, 1, 15, tzinfo=NY, fold=1)
+    ev = link(published_at=early, first_seen_at=early, recorded_at=late)
+    assert ev.published_at.tzinfo is UTC
+    assert ev.first_seen_at.tzinfo is UTC
+    assert ev.recorded_at.tzinfo is UTC
+    assert ev.available_at == datetime(2026, 11, 1, 6, 15, tzinfo=UTC)
+    with pytest.raises(ValueError, match="unavailable"):
+        hypothesis(registered_at=early, evidence=(ev,))
+    assert hypothesis(registered_at=late, evidence=(ev,)).registered_at == ev.available_at
+    with pytest.raises(ValueError, match="recorded_at"):
+        link(published_at=early, first_seen_at=late, recorded_at=early)
+
+
+def test_repeated_hour_forecast_cannot_precede_hypothesis():
+    early = datetime(2026, 11, 1, 1, 45, tzinfo=NY, fold=0)
+    late = datetime(2026, 11, 1, 1, 15, tzinfo=NY, fold=1)
+    h = hypothesis(registered_at=late)
+    with pytest.raises(ValueError, match="precede"):
+        forecast(hypothesis=h, registered_at=early, target_end=late + timedelta(hours=1))
+
+
+def test_outcome_window_matches_instant_not_repeated_wall_time():
+    start = datetime(2026, 11, 1, 1, 30, tzinfo=NY, fold=0)
+    end = datetime(2026, 11, 1, 1, 30, tzinfo=NY, fold=1)
+    f = forecast(hypothesis=hypothesis(registered_at=start), registered_at=start, target_end=end)
+    wrong = outcome(target_end=start, available_at=end)
+    with pytest.raises(ValueError, match="does not belong"):
+        scoring_status(f, wrong, as_of=end)
+
+
+def test_cross_midnight_and_late_extraction_use_actual_availability():
+    start = datetime(2026, 1, 2, 23, 30, tzinfo=NY)
+    end = datetime(2026, 1, 3, 0, 30, tzinfo=NY)
+    ev = link(published_at=start, first_seen_at=start, recorded_at=end)
+    with pytest.raises(ValueError, match="unavailable"):
+        hypothesis(registered_at=start, evidence=(ev,))
+    f = forecast(hypothesis=hypothesis(registered_at=start), registered_at=start, target_end=end)
+    o = outcome(target_end=end, available_at=end + timedelta(minutes=1))
+    assert scoring_status(f, o, as_of=end) is ScoringStatus.PENDING_AVAILABILITY
+    assert scoring_status(f, o, as_of=o.available_at) is ScoringStatus.READY
+
+
+def test_revision_does_not_replace_original_available_evidence():
+    received = datetime(2026, 1, 2, 23, 30, tzinfo=NY)
+    original = link(published_at=received, first_seen_at=received, recorded_at=received)
+    h = hypothesis(registered_at=received, evidence=(original,))
+    revision = replace(
+        original,
+        content_sha256="b" * 64,
+        recorded_at=received + timedelta(hours=1),
+    )
+    with pytest.raises(ValueError, match="unavailable"):
+        replace(h, version=2, evidence=(revision,))
+    assert h.evidence[0].content_sha256 == "a" * 64
