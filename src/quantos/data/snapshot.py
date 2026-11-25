@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
@@ -13,7 +14,7 @@ from .quality import assess_data_quality
 
 @dataclass(frozen=True, slots=True)
 class SnapshotSourceQuery:
-    """How one registered source contributes fields to an analytical snapshot."""
+    """Required value fields contributed by one registered source to a snapshot."""
 
     source_id: str
     timestamp_column: str
@@ -79,6 +80,18 @@ class SnapshotBuilder:
 
             row = rows[0]
             event_time = row[spec.timestamp_column]
+            invalid = [
+                column for column in spec.value_columns
+                if row[column] is None
+                or (isinstance(row[column], float) and not math.isfinite(row[column]))
+            ]
+            if invalid:
+                # Do not skip to an older observation or publish partial values
+                # as healthy evidence when the latest required payload is unusable.
+                quality_reports.append(DataQualityReport.unavailable(
+                    spec.source_id, as_of, f"unusable values: {', '.join(invalid)}",
+                ))
+                continue
             for column in spec.value_columns:
                 values[f"{spec.prefix}{column}"] = row[column]
 
