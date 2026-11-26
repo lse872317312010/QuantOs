@@ -40,6 +40,26 @@ Historical journals keep their original contents. A legacy candidate whose sourc
 or completed risk checks cannot be established remains unverified. To compare a reconstructed
 review, use the same inputs and cutoff, write to a new journal, and retain both versions.
 
+### Strict JSON journal output
+
+New rows are serialized with the standard-library JSON encoder's `allow_nan=False`.
+Non-finite floating-point values are represented as JSON null **with** an explicit
+top-level `nonfinite_values` list. Each entry has a `path` array of string object
+keys and integer array indices relative to the row root, and a `kind` of `NaN`,
+`Infinity` or `-Infinity`. The sidecar is absent when no such value was encountered.
+A null at a listed path is an invalid numeric observation, not a valid zero or
+an ordinary missing value; unlisted nulls and literal strings are not markers.
+A duplicate key after string conversion is rejected before appending because it
+would make audit paths ambiguous. Decisions and risk assessments are not recomputed
+by serialization.
+
+`DecisionJournal.entries()` retains its legacy permissive reader for compatibility;
+old rows may contain nonstandard tokens and are not silently normalized or revalidated.
+Consumers requiring strict JSON must validate individual historical rows and isolate
+invalid or unverifiable records before using them as research or scoring evidence.
+Never rewrite the old file to make it appear valid; a reconstruction belongs in a
+separate journal. New valid rows can still be appended to an older file.
+
 ## Output
 
 The Markdown renderer contains:
