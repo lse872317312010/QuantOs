@@ -29,8 +29,12 @@ Default configuration:
     purge dates: 1
     expanding train window: yes
 
-The purge date separates training from testing and reduces boundary leakage from labels or state
-that can overlap adjacent dates.
+In each fold TRAIN labels must end strictly before New York midnight opening the first reserved
+date (the first purge date, or the first TEST date for a zero gap). TEST labels must end before
+midnight following the final TEST date. The endpoint comes from the matched observation.
+A fold recomputes eligibility from the complete outcome file, so a label excluded in one
+window can qualify in another. The fold report includes the counts in
+`fold_purged_train_labels` and `fold_purged_test_labels`.
 
 ## Outputs
 
@@ -40,6 +44,10 @@ that can overlap adjacent dates.
 The fold file contains the complete selection and OOS result for every threshold. The summary only
 aggregates rows whose `stable_train_candidate` flag was true before the corresponding test window
 was observed.
+
+`train_selected_folds` retains all training selections. The promotion input `selected_folds`
+counts only selections with at least one matched TEST date and a finite mean TEST return.
+A fold whose test labels are all missing or purged contributes zero completed evaluations.
 
 ## Interpretation
 

@@ -83,6 +83,33 @@ def test_chronological_holdout_marks_single_day_unsplit() -> None:
     assert split.frame["sample"].to_list() == ["UNSPLIT"]
 
 
+def test_holdout_uses_the_observed_exit_across_dst_midnight() -> None:
+    # November 1 is a 25-hour New York date. The TEST date starts at 05:00 UTC.
+    boundary = epoch_ms(datetime(2026, 11, 2, tzinfo=NY))
+    outcomes = pl.DataFrame(
+        {
+            "market_date": ["2026-11-01"] * 4 + ["2026-11-02"],
+            "_future_timestamp_ms": [boundary - 1, boundary, boundary + 1, None, boundary + 1000],
+            "net_forward_trade_return_bps": [5.0, 99.0, 100.0, None, 2.0],
+        }
+    )
+    split = chronological_holdout(outcomes, test_fraction=0.5)
+    assert split.frame["sample"].to_list() == ["TRAIN", "PURGED", "PURGED", "TRAIN", "TEST"]
+    assert split.frame.height == outcomes.height
+
+
+def test_holdout_rejects_a_scored_label_without_a_verifiable_exit() -> None:
+    frame = pl.DataFrame(
+        {"market_date": ["2026-09-01", "2026-09-02"], "net_forward_trade_return_bps": [5.0, 2.0]}
+    )
+    with pytest.raises(ValueError, match="_future_timestamp_ms"):
+        chronological_holdout(frame)
+    with pytest.raises(ValueError, match="_future_timestamp_ms"):
+        chronological_holdout(
+            frame.with_columns(pl.lit(None, dtype=pl.Int64).alias("_future_timestamp_ms"))
+        )
+
+
 def test_holdout_summary_uses_net_returns() -> None:
     outcomes = pl.DataFrame(
         {
