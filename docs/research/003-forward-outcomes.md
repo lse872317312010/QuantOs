@@ -29,6 +29,17 @@ at or after t + H. The match must be no more than max_match_lag_ms after the req
 This prevents a 1-second outcome from silently matching a quote many minutes later across a data
 gap.
 
+Research observations need finite bid, ask, mid, basis and all three convergence
+edge values. The CSV analysis drops rows with missing or non-finite values before
+assigning a side or edge bucket. A later valid exit can match only within the
+original time tolerance. If every row is filtered, the run stops before writing
+output. Raw captures and earlier reports can be retained for replay in a new directory.
+
+Code passing prepared rows directly to `forward_outcomes` must supply finite
+quote values and finite values for any convergence edge columns it provides.
+If a return calculation on finite prices overflows, the label is null and the
+matching delay remains available for audit.
+
 Default horizons:
 
     1s, 5s, 30s, 300s
