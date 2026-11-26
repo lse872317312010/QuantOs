@@ -14,7 +14,13 @@ import polars as pl
 from .promotion import research_promotion_gate
 from .robustness import threshold_stability_report
 from .uncertainty import daily_net_summary, date_cluster_bootstrap
-from .validation import CostModel, apply_cost_model, chronological_holdout, summarize_holdout
+from .validation import (
+    MATCHED_EXIT_MS,
+    CostModel,
+    apply_cost_model,
+    chronological_holdout,
+    summarize_holdout,
+)
 from .walkforward import summarize_walk_forward, walk_forward_threshold_report
 
 NY = ZoneInfo("America/New_York")
@@ -223,8 +229,17 @@ def forward_outcomes(
     if signals.is_empty():
         return signals.with_columns(
             pl.lit(None, dtype=pl.Int64).alias("horizon_s"),
+            pl.lit(None, dtype=pl.Int64).alias(MATCHED_EXIT_MS),
             pl.lit(None, dtype=pl.Float64).alias("forward_trade_return_bps"),
         ).head(0)
+
+    # A millisecond timestamp alone cannot order multiple observations of one
+    # symbol. Do not let input order decide an exit or inflate the sample count.
+    if signals.select("symbol", "observed_timestamp_ms").is_duplicated().any():
+        raise ValueError(
+            "Duplicate (symbol, observed_timestamp_ms) research keys; "
+            "use a source with unambiguous observation times"
+        )
 
     future = signals.select(
         "symbol",
@@ -237,18 +252,17 @@ def forward_outcomes(
     outcomes: list[pl.DataFrame] = []
 
     for horizon_s in horizons_s:
-        future_timestamp = "_future_timestamp_ms"
         future_frame = (
             future.rename(
                 {
-                    "observed_timestamp_ms": future_timestamp,
+                    "observed_timestamp_ms": MATCHED_EXIT_MS,
                     "bid": "_future_bid",
                     "ask": "_future_ask",
                     "mid": "_future_mid",
                     "basis_bps": "_future_basis_bps",
                 }
             )
-            .sort("symbol", future_timestamp)
+            .sort("symbol", MATCHED_EXIT_MS)
         )
 
         joined = (
@@ -259,14 +273,14 @@ def forward_outcomes(
             .join_asof(
                 future_frame,
                 left_on="_target_timestamp_ms",
-                right_on=future_timestamp,
+                right_on=MATCHED_EXIT_MS,
                 by="symbol",
                 strategy="forward",
                 tolerance=max_match_lag_ms,
             )
             .with_columns(
                 pl.lit(horizon_s).alias("horizon_s"),
-                (pl.col(future_timestamp) - pl.col("_target_timestamp_ms")).alias(
+                (pl.col(MATCHED_EXIT_MS) - pl.col("_target_timestamp_ms")).alias(
                     "forward_match_lag_ms"
                 ),
                 ((pl.col("_future_mid") / pl.col("mid") - 1.0) * 10_000.0).alias(
@@ -448,6 +462,11 @@ def analyze_file(
     threshold_summary.write_csv(target / "threshold_stability.csv")
     walk_forward_folds.write_csv(target / "walk_forward_folds.csv")
     walk_forward_summary.write_csv(target / "walk_forward_summary.csv")
+    # A rerun produces newly available research, even when all inputs are historical.
+    latest_observation = datetime.fromtimestamp(int(signals["observed_timestamp_ms"].max()) / 1000, UTC)
+    gate_available_at = max(datetime.now(UTC), latest_observation).isoformat()
+    if not promotion_gate.is_empty():
+        promotion_gate = promotion_gate.with_columns(pl.lit(gate_available_at).alias("available_at"))
     promotion_gate.write_csv(target / "promotion_gate.csv")
     (target / "analysis_config.json").write_text(
         json.dumps(
@@ -463,8 +482,11 @@ def analyze_file(
                 "taker_fee_bps_per_side": cost_model.taker_fee_bps_per_side,
                 "slippage_bps_per_side": cost_model.slippage_bps_per_side,
                 "short_borrow_bps_per_day": cost_model.short_borrow_bps_per_day,
+                "short_borrow_time_basis": "matched_exit_minus_observation_ms",
                 "test_fraction": test_fraction,
                 "holdout_cutoff_market_date": split.cutoff_date,
+                "label_endpoint_column": MATCHED_EXIT_MS,
+                "holdout_purged_labels": outcomes["sample"].eq("PURGED").sum(),
                 "train_market_dates": split.train_dates,
                 "test_market_dates": split.test_dates,
                 "bootstrap_resamples": bootstrap_resamples,

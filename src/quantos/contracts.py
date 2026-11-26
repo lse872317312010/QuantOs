@@ -11,6 +11,8 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Any
 
+from .time import as_utc
+
 
 class EvidenceDomain(StrEnum):
     MARKET = "MARKET"
@@ -52,12 +54,23 @@ class Evidence:
     confidence: float
     directional_score: float = 0.0
     metadata: dict[str, Any] = field(default_factory=dict)
+    available_at: datetime | None = None
 
     def __post_init__(self) -> None:
+        observed = as_utc(self.observed_at)
+        available = observed if self.available_at is None else as_utc(self.available_at)
+        if available < observed:
+            raise ValueError("evidence cannot be available before it is observed")
+        object.__setattr__(self, "observed_at", observed)
+        object.__setattr__(self, "available_at", available)
         if not 0.0 <= self.confidence <= 1.0:
             raise ValueError("confidence must be between 0 and 1")
         if not -1.0 <= self.directional_score <= 1.0:
             raise ValueError("directional_score must be between -1 and 1")
+
+    def require_available(self, as_of: datetime) -> None:
+        if (self.available_at or self.observed_at) > as_utc(as_of):
+            raise ValueError(f"evidence from {self.source} is not available at the review cutoff")
 
 
 @dataclass(frozen=True, slots=True)
@@ -103,6 +116,9 @@ class DecisionCandidate:
     alternatives: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
+        object.__setattr__(self, "as_of", as_utc(self.as_of))
+        for item in self.evidence:
+            item.require_available(self.as_of)
         if not self.instrument:
             raise ValueError("instrument is required")
         if not 0.0 <= self.confidence <= 1.0:
@@ -124,3 +140,8 @@ class DecisionSnapshot:
     candidates: tuple[DecisionCandidate, ...] = ()
     alerts: tuple[str, ...] = ()
     notes: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "as_of", as_utc(self.as_of))
+        if any(candidate.as_of > self.as_of for candidate in self.candidates):
+            raise ValueError("candidate is newer than the decision snapshot")

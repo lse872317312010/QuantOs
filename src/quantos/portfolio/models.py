@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 
+from quantos.time import as_utc
+
 
 @dataclass(frozen=True, slots=True)
 class Position:
@@ -27,8 +29,7 @@ class PortfolioSnapshot:
     positions: tuple[Position, ...] = ()
 
     def __post_init__(self) -> None:
-        if self.as_of.tzinfo is None:
-            raise ValueError("as_of must be timezone-aware")
+        object.__setattr__(self, "as_of", as_utc(self.as_of))
         if self.total_equity <= 0:
             raise ValueError("total_equity must be positive")
 

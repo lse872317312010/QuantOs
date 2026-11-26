@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from math import isfinite
+
 import polars as pl
 
 KEYS = ("horizon_s", "market_session", "preferred_side", "threshold_bps")
@@ -25,6 +27,8 @@ def research_promotion_gate(
         raise ValueError("min_test_market_dates must be positive")
     if not 0 <= min_positive_oos_fold_rate <= 1:
         raise ValueError("min_positive_oos_fold_rate must be between 0 and 1")
+    if not isfinite(min_mean_oos_daily_net_bps):
+        raise ValueError("min_mean_oos_daily_net_bps must be finite")
 
     required_threshold = {*KEYS, "stable_train_candidate"}
     missing_threshold = sorted(required_threshold - set(threshold_report.columns))
@@ -61,14 +65,22 @@ def research_promotion_gate(
             raise ValueError(f"Promotion gate walk-forward input missing columns: {missing_walk}")
         joined = base.join(walk_forward_summary, on=list(KEYS), how="left")
 
+    oos_metrics = pl.col(
+        "selected_folds", "test_market_dates", "mean_oos_daily_net_bps", "positive_oos_fold_rate"
+    )
+    complete_oos = (
+        pl.all_horizontal(oos_metrics.cast(pl.Float64).is_finite())
+        & pl.col("positive_oos_fold_rate").is_between(0.0, 1.0)
+    ).fill_null(False)
     return (
         joined.with_columns(
-            pl.when(~pl.col("stable_train_candidate"))
+            pl.when(~pl.col("stable_train_candidate").fill_null(False))
             .then(pl.lit("REJECTED_TRAIN"))
             .when(pl.col("selected_folds").is_null())
             .then(pl.lit("INSUFFICIENT_WALK_FORWARD"))
             .when(
-                (pl.col("selected_folds") < min_selected_folds)
+                ~complete_oos
+                | (pl.col("selected_folds") < min_selected_folds)
                 | (pl.col("test_market_dates") < min_test_market_dates)
             )
             .then(pl.lit("INSUFFICIENT_OOS_HISTORY"))

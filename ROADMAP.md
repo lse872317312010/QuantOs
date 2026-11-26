@@ -2,7 +2,7 @@
 
 本路线图依据 [CONSTITUTION.md](CONSTITUTION.md) v1.0.0（2026-11-24）编制。它规定交付顺序和验收证据，不授予资金、数据、服务或费用权限。长期原则变更走 C15 修宪；具体实现及框架替换走受审查 ADR。开发与验收遵循 [CONTRIBUTING.md](CONTRIBUTING.md) 和 [AGENTS.md](AGENTS.md)。
 
-**2026-11-26 主线核验。** 宪法 v1.0.0 已随 #17 生效。#16、#28 的预测登记与交易日期限，以及 #21、#22、#32、#34 的行情导入与快照修复均已合入 `main`。最后一次合并 `b66b122` 通过 Ruff 和 129 项测试，保留 42 条警告。P0 仍待其余工程修复集成及受影响的历史研究产物核验。[主线合并与检查记录](#p0-mainline)
+**2026-11-26 主线核验。** 治理、交易日期限、行情快照、研究标签、风险否决和决策日志均已进入主线。本轮 11 个已审实现 PR 经 10 次合并进入 `main`，最后的提交 `6d20ccd` 通过 Ruff 和 216 项测试。异常研究输入修复 #42 及真实历史归档处置仍待验收。[研究与风险主线记录](#p0-closeout)
 
 ## 1. 北极星：改善人的投资认知
 
@@ -29,7 +29,7 @@ P0–P6 是验收门槛而不是工期承诺。全部未验收。可并行开展
 
 | 门槛 | 对应条款 | 前置 | 当前状态 |
 | --- | --- | --- | --- |
-| P0 正确性与治理基线 | C00, C05, C08–C10, C12, C14–C15 | 治理规范已采纳 | #16、#28 和四项行情修复已通过各自的主线 CI。其余工程合并、最终组合复验和历史产物核验仍待完成 |
+| P0 正确性与治理基线 | C00, C05, C08–C10, C12, C14–C15 | 治理规范已采纳 | [研究与风险合并记录](#p0-closeout)已核对至 `6d20ccd`。#42 待审阅、合并后复验；旧结果待确认范围并处置。 |
 | P1 来源与证据记忆 | C03–C07, C12 | P0 | 未验收 |
 | P2 时序知识与反证检索 | C03–C07, C11–C13 | P1 | 未验收 |
 | P3 假设与事前登记 | C02, C05–C09, C12–C13 | P2 | 未验收 |
@@ -43,9 +43,35 @@ P0–P6 是验收门槛而不是工期承诺。全部未验收。可并行开展
 - [ ] 检查现有 data/evidence/risk/decision/workspace/journal 的时间及可用性语义；交易日期限复用成熟日历，明确事件时间不等于信息可用时间；列出受影响历史产物并隔离或重算。
 - [x] 已在 #18–#21 审计旧研究标签实际结束点、分割泄漏、样本外晋级、缺失风险与未来证据，并为复现的缺口提交阻断测试。主线集成和历史结果采用另行验收。
 - [x] 记录 #17 的治理采纳和主线 CI，核对默认分支保护标记与仓库规则集列表。
-- [ ] 在后续工程合并时核对适用检查和未解决的审查意见，保留最终主线的复验记录。
+- [x] 核对本轮十次研究与风险工程合并的来源提交、主线文件树、适用 CI 和代码审查，含 #26 带入的 #24。
+- [ ] 完成 #42 的人工复核并在实际主线上复验非有限输入、信号分档和退出报价的边界行为。
 
 **退出证据：** 目标提交的相关回归测试、全套适用 CI、审查关闭或人工确认的不适用记录；明确历史结果影响。P0 未通过不得将 #16 或受影响旧结果作为正式预测/评分依据。
+
+<a id="p0-closeout"></a>
+
+#### 2026-11-26 研究与风险主线合并
+
+以下每行对应一次 GitHub 主线合并及其推送 CI。每次合并均保留两个父提交，已比对合并前核验的文件树与合并结果。
+
+| 实现 | 主线提交 | Ruff 与全套 pytest |
+| --- | --- | --- |
+| [#18 按实际退出时刻切分样本](https://github.com/lse872317312010/QuantOs/pull/18) | [`c65d91d`](https://github.com/lse872317312010/QuantOs/commit/c65d91d69d46c4cc552477f4486a43d99e6d1050) | [136 项通过，51 条警告](https://github.com/lse872317312010/QuantOs/actions/runs/45790823320/job/139809108146) |
+| [#27 按实际持仓时长计借用成本](https://github.com/lse872317312010/QuantOs/pull/27) | [`1730e96`](https://github.com/lse872317312010/QuantOs/commit/1730e96403232fbf5b8cc82fbc49f243e03a5139) | [141 项通过，52 条警告](https://github.com/lse872317312010/QuantOs/actions/runs/45791109232/job/139810064438) |
+| [#29 拒绝同毫秒重复报价](https://github.com/lse872317312010/QuantOs/pull/29) | [`c591e48`](https://github.com/lse872317312010/QuantOs/commit/c591e489a98277a627e1c91a5f98b387527d150c) | [144 项通过，53 条警告](https://github.com/lse872317312010/QuantOs/actions/runs/45791291687/job/139810682211) |
+| [#20 检查样本外晋级指标](https://github.com/lse872317312010/QuantOs/pull/20) | [`88de897`](https://github.com/lse872317312010/QuantOs/commit/88de897060bfbc410e354d414189b7d85a9e4c34) | [151 项通过，53 条警告](https://github.com/lse872317312010/QuantOs/actions/runs/45791433786/job/139811167139) |
+| [#30 只读核查历史报价键](https://github.com/lse872317312010/QuantOs/pull/30) | [`4bdb674`](https://github.com/lse872317312010/QuantOs/commit/4bdb674aa0f03e74956b91b2e8a7724145024a29) | [161 项通过，53 条警告](https://github.com/lse872317312010/QuantOs/actions/runs/45791631745/job/139811838818) |
+| [#19 阻断未来证据及缺失风险](https://github.com/lse872317312010/QuantOs/pull/19) | [`6cfd507`](https://github.com/lse872317312010/QuantOs/commit/6cfd507f11e48de09e9de1aff9fafa5e5ee395e6) | [173 项通过，53 条警告](https://github.com/lse872317312010/QuantOs/actions/runs/45791811900/job/139812445632) |
+| [#26 统一未来报价状态和 UTC 新鲜度（含 #24）](https://github.com/lse872317312010/QuantOs/pull/26) | [`32f4505`](https://github.com/lse872317312010/QuantOs/commit/32f450509997d9a41672b040a217558d8081d0ac) | [181 项通过，53 条警告](https://github.com/lse872317312010/QuantOs/actions/runs/45792003903/job/139813089639) |
+| [#36 无效流动性价差触发否决](https://github.com/lse872317312010/QuantOs/pull/36) | [`994f4d5`](https://github.com/lse872317312010/QuantOs/commit/994f4d5a680d4d88ab22e6f0d38a67d5075780ef) | [195 项通过，53 条警告](https://github.com/lse872317312010/QuantOs/actions/runs/45792172507/job/139813664481) |
+| [#37 无效组合估值触发否决](https://github.com/lse872317312010/QuantOs/pull/37) | [`00e5dcc`](https://github.com/lse872317312010/QuantOs/commit/00e5dcc6ea8b7328465ef3b54e6c01d410933483) | [207 项通过，53 条警告](https://github.com/lse872317312010/QuantOs/actions/runs/45792369246/job/139814352728) |
+| [#40 严格 JSON 决策日志](https://github.com/lse872317312010/QuantOs/pull/40) | [`6d20ccd`](https://github.com/lse872317312010/QuantOs/commit/6d20ccd655e3c0a3b0f2c1f697684bb3379451f1) | [216 项通过，53 条警告](https://github.com/lse872317312010/QuantOs/actions/runs/45792567957/job/139815032245) |
+
+[#24](https://github.com/lse872317312010/QuantOs/pull/24) 的提交已作为 [#26](https://github.com/lse872317312010/QuantOs/pull/26) 的第二个父提交进入主线。其 UTC 新鲜度与未来报价回归都在最终测试集中。上述主线与先前候选 [#38](https://github.com/lse872317312010/QuantOs/pull/38) 的 `src/` 目录逐文件相同。额外使用 #38 原版的时序与故障回放用例，14 项通过。七组工作台合成回放中，六组异常被风险规则拦下且优先分为零，健康对照进入候选，七份日志均可按严格 JSON 读取。
+
+[#42](https://github.com/lse872317312010/QuantOs/pull/42) 的源提交为 `a3eb7c7`。将它与主线 `6d20ccd` 组合后，[独立 CI](https://github.com/lse872317312010/QuantOs/actions/runs/45792722326/job/139815528064) 通过 Ruff 和 221 项测试。相同四行合成 CSV 在已合并主线上给出 +∞ bp，加入 #42 后保留第 1、4 行，选中比目标晚 100 ms 的退出买价 103，入场卖价 101，对应毛收益 +198.02 bp。
+
+归档核查已覆盖本次提交中的常见行情及研究结果文件、GitHub Releases 和 14 个相关 Actions 运行的附件。这些位置未发现真实行情或旧研究产物。仓库外归档范围尚待确认；已知不可核验的旧结果保留并排除出正式评分，有可追溯原始数据的批次可在新目录重算。
 
 <a id="p0-mainline"></a>
 
@@ -189,7 +215,7 @@ P0–P6 是验收门槛而不是工期承诺。全部未验收。可并行开展
 | --- | --- | --- | --- |
 | 1 | 所有者审核并采纳宪法 | #17，C15 | 已合入主线并生效 |
 | 2 | 修复预测登记的 UTC/DST 时序并采用交易日收盘期限 | #16、#28 的合并提交和主线 CI | 两项均已合并，见[主线记录](#p0-mainline) |
-| 3 | 审计既有研究、风险与快照 | [行情四项主线记录](#p0-mainline)和 [#38 候选组合 CI](https://github.com/lse872317312010/QuantOs/actions/runs/45658008698/job/139359844559) | 行情四项已合并，最终主线 129 项通过。#38 的独立候选组合 228 项通过。其余修复、警告跟踪和历史产物仍待核验 |
+| 3 | 审计既有研究、风险与快照 | [行情主线记录](#p0-mainline)、[研究与风险主线记录](#p0-closeout) | 主线 216 项通过。#42 的集成验证 221 项通过；人工复核及历史产物处置仍待完成。 |
 | 4 | 接入首个获准资料并建立来源版本记录 | P0；P1；[Issue #23](https://github.com/lse872317312010/QuantOs/issues/23) | FOMC 候选来源预研，未取得实际配对行情；未验收 |
 | 5 | 知识检索、假设登记及持久化 | P1→P2→P3 | 未验收 |
 | 6 | 可复现实验及真实预测到期复盘 | P4→P5 | 未验收 |

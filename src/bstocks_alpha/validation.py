@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from math import floor
+from datetime import date
+from math import floor, isfinite
 
 import polars as pl
+
+MATCHED_EXIT_MS = "_future_timestamp_ms"
 
 
 @dataclass(frozen=True, slots=True)
@@ -22,8 +25,8 @@ class CostModel:
             self.slippage_bps_per_side,
             self.short_borrow_bps_per_day,
         )
-        if any(value < 0 for value in values):
-            raise ValueError("cost assumptions must be non-negative")
+        if any(not isfinite(value) or value < 0 for value in values):
+            raise ValueError("cost assumptions must be finite and non-negative")
 
 
 @dataclass(frozen=True, slots=True)
@@ -34,14 +37,39 @@ class HoldoutSplit:
     test_dates: int
 
 
+def _matched_holding_ms(outcomes: pl.DataFrame) -> pl.Expr:
+    target_ms = pl.col("horizon_s") * 1_000
+    has_lag = "forward_match_lag_ms" in outcomes.columns
+    lag = pl.col("forward_match_lag_ms")
+    if MATCHED_EXIT_MS in outcomes.columns and "observed_timestamp_ms" in outcomes.columns:
+        duration = pl.col(MATCHED_EXIT_MS) - pl.col("observed_timestamp_ms")
+        valid = duration >= target_ms
+        if has_lag:
+            valid &= lag.is_null() | (duration == target_ms + lag)
+    elif has_lag:
+        # Older exports retained the offset from the target to the matched quote.
+        duration = target_ms + lag
+        valid = lag >= 0
+        if MATCHED_EXIT_MS in outcomes.columns:
+            valid &= pl.col(MATCHED_EXIT_MS).is_not_null()
+    else:
+        return pl.lit(None, dtype=pl.Float64)
+    return pl.when((target_ms > 0) & duration.is_finite() & valid).then(duration)
+
+
 def apply_cost_model(outcomes: pl.DataFrame, model: CostModel) -> pl.DataFrame:
     """Subtract taker fees, additional slippage and prorated short borrow from gross return."""
     round_trip_fee_bps = 2.0 * model.taker_fee_bps_per_side
     round_trip_slippage_bps = 2.0 * model.slippage_bps_per_side
 
+    short_borrow = pl.lit(0.0)
+    if model.short_borrow_bps_per_day:
+        short_borrow = _matched_holding_ms(outcomes) * (model.short_borrow_bps_per_day / 86_400_000)
     borrow_cost = (
-        pl.when(pl.col("preferred_side") == "SHORT")
-        .then(model.short_borrow_bps_per_day * pl.col("horizon_s") / 86_400.0)
+        pl.when(pl.col("forward_trade_return_bps").is_null())
+        .then(None)
+        .when(pl.col("preferred_side") == "SHORT")
+        .then(short_borrow)
         .otherwise(0.0)
         .alias("borrow_cost_bps")
     )
@@ -64,6 +92,37 @@ def apply_cost_model(outcomes: pl.DataFrame, model: CostModel) -> pl.DataFrame:
                 "net_forward_trade_return_bps"
             )
         )
+    )
+
+
+def purge_overlapping_labels(
+    tagged: pl.DataFrame, *, train_before: str, test_through: str,
+) -> pl.DataFrame:
+    """Keep the matched exit inside its window, retaining excluded rows for audit."""
+    returns = [
+        name for name in ("forward_trade_return_bps", "net_forward_trade_return_bps")
+        if name in tagged.columns
+    ]
+    if not returns:
+        return tagged  # Plain date partitions have no outcome labels.
+    if MATCHED_EXIT_MS not in tagged.columns:
+        raise ValueError(f"Missing {MATCHED_EXIT_MS}: rebuild labels from the original observations")
+    scored = pl.any_horizontal(pl.col(name).is_not_null() for name in returns)
+    if tagged.select((scored & pl.col(MATCHED_EXIT_MS).is_null()).any()).item():
+        raise ValueError(f"A scored return is missing its observed exit ({MATCHED_EXIT_MS})")
+
+    exit_date = (
+        pl.from_epoch(pl.col(MATCHED_EXIT_MS), time_unit="ms")
+        .dt.convert_time_zone("America/New_York")
+        .dt.date()
+    )
+    crosses_train = (pl.col("sample") == "TRAIN") & (exit_date >= date.fromisoformat(train_before))
+    crosses_test = (pl.col("sample") == "TEST") & (exit_date > date.fromisoformat(test_through))
+    return tagged.with_columns(
+        pl.when(crosses_train | crosses_test)
+        .then(pl.lit("PURGED"))
+        .otherwise(pl.col("sample"))
+        .alias("sample")
     )
 
 
@@ -92,13 +151,17 @@ def chronological_holdout(
     cutoff_date = str(dates[train_date_count - 1])
 
     tagged = outcomes.with_columns(
-        pl.when(pl.col("market_date") <= cutoff_date)
+        pl.when(pl.col("market_date").is_null())
+        .then(pl.lit("UNSPLIT"))
+        .when(pl.col("market_date") <= cutoff_date)
         .then(pl.lit("TRAIN"))
         .otherwise(pl.lit("TEST"))
         .alias("sample")
     )
     return HoldoutSplit(
-        frame=tagged,
+        frame=purge_overlapping_labels(
+            tagged, train_before=str(dates[train_date_count]), test_through=str(dates[-1]),
+        ),
         cutoff_date=cutoff_date,
         train_dates=train_date_count,
         test_dates=len(dates) - train_date_count,
@@ -113,7 +176,7 @@ def summarize_holdout(outcomes: pl.DataFrame) -> pl.DataFrame:
         raise ValueError(f"Holdout summary missing required columns: {missing}")
 
     return (
-        outcomes.group_by(
+        outcomes.filter(pl.col("sample") != "PURGED").group_by(
             "sample",
             "horizon_s",
             "market_session",

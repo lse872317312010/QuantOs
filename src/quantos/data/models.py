@@ -12,6 +12,8 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
 
+from quantos.time import as_utc
+
 
 class MarketEventType(StrEnum):
     QUOTE = "QUOTE"
@@ -81,8 +83,8 @@ class MarketEvent:
     payload: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        if self.ts_event.tzinfo is None or self.ts_received.tzinfo is None:
-            raise ValueError("market event timestamps must be timezone-aware")
+        object.__setattr__(self, "ts_event", as_utc(self.ts_event))
+        object.__setattr__(self, "ts_received", as_utc(self.ts_received))
         # Source clocks can be ahead of the receiver. Preserve both timestamps rather than
         # rewriting or rejecting the event; downstream quality logic can measure clock skew.
 
@@ -108,8 +110,11 @@ class DataQualityReport:
         )
 
     def __post_init__(self) -> None:
-        if self.as_of.tzinfo is None:
-            raise ValueError("as_of must be timezone-aware")
+        object.__setattr__(self, "as_of", as_utc(self.as_of))
+        if self.last_event_at is not None:
+            object.__setattr__(self, "last_event_at", as_utc(self.last_event_at))
+            if self.last_event_at > self.as_of:
+                raise ValueError("last event is newer than the quality report")
         if self.freshness_s is not None and self.freshness_s < 0:
             raise ValueError("freshness_s must be non-negative")
         if self.completeness is not None and not 0.0 <= self.completeness <= 1.0:
@@ -127,8 +132,15 @@ class MarketSnapshot:
     quality: tuple[DataQualityReport, ...] = ()
 
     def __post_init__(self) -> None:
-        if self.as_of.tzinfo is None:
-            raise ValueError("as_of must be timezone-aware")
+        object.__setattr__(self, "as_of", as_utc(self.as_of))
+        if any(report.as_of > self.as_of for report in self.quality):
+            raise ValueError("quality report is newer than the market snapshot")
+
+    def require_for_review(self, instrument: str, as_of: datetime) -> None:
+        if self.instrument_id != instrument:
+            raise ValueError("market snapshot belongs to a different instrument")
+        if self.as_of > as_utc(as_of):
+            raise ValueError("market snapshot is newer than the review cutoff")
 
 
 def utc_now() -> datetime:

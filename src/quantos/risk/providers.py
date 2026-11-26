@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import math
 from collections.abc import Sequence
 from datetime import datetime
 from typing import Any
 
 from quantos.contracts import Evidence, EvidenceDomain, RiskAssessment
 from quantos.portfolio import PortfolioSnapshot
+from quantos.time import as_utc
 
 
 class DataQualityRiskProvider:
@@ -31,9 +33,9 @@ class DataQualityRiskProvider:
         relevant = [item for item in evidence if item.domain is EvidenceDomain.DATA_QUALITY]
         if not relevant:
             return RiskAssessment(
-                overall_score=0.7,
-                warnings=("no data-quality evidence",),
-                dimensions={"data_quality": 0.7},
+                overall_score=1.0,
+                blockers=("no data-quality evidence",),
+                dimensions={"data_quality": 1.0},
             )
 
         minimum_confidence = min(item.confidence for item in relevant)
@@ -60,8 +62,12 @@ class LiquidityRiskProvider:
         warning_spread_bps: float = 25.0,
         blocker_spread_bps: float = 75.0,
     ) -> None:
-        if warning_spread_bps <= 0 or blocker_spread_bps <= warning_spread_bps:
-            raise ValueError("spread thresholds must be positive and ordered")
+        if not (
+            math.isfinite(warning_spread_bps)
+            and math.isfinite(blocker_spread_bps)
+            and 0 < warning_spread_bps < blocker_spread_bps
+        ):
+            raise ValueError("spread thresholds must be finite, positive and ordered")
         self.warning_spread_bps = warning_spread_bps
         self.blocker_spread_bps = blocker_spread_bps
 
@@ -84,9 +90,18 @@ class LiquidityRiskProvider:
         ]
         if not spreads:
             return RiskAssessment(
-                overall_score=0.5,
-                warnings=("liquidity evidence unavailable",),
-                dimensions={"liquidity": 0.5},
+                overall_score=1.0,
+                blockers=("liquidity evidence unavailable",),
+                dimensions={"liquidity": 1.0},
+            )
+
+        # Validate every observation before aggregation: max() can ignore NaN
+        # or negative values when a different source reports a healthy spread.
+        if any(not math.isfinite(value) or value < 0 for value in spreads):
+            return RiskAssessment(
+                overall_score=1.0,
+                blockers=("invalid liquidity spread",),
+                dimensions={"liquidity": 1.0},
             )
 
         spread = max(spreads)
@@ -133,14 +148,33 @@ class ConcentrationRiskProvider:
         portfolio = context.get("portfolio")
         if portfolio is None:
             return RiskAssessment(
-                overall_score=0.0,
-                warnings=("portfolio context unavailable",),
-                dimensions={"concentration": 0.0},
+                overall_score=1.0,
+                blockers=("portfolio context unavailable",),
+                dimensions={"concentration": 1.0},
             )
         if not isinstance(portfolio, PortfolioSnapshot):
             raise TypeError("context['portfolio'] must be a PortfolioSnapshot")
+        if portfolio.as_of > as_utc(as_of):
+            raise ValueError("portfolio snapshot is newer than the risk cutoff")
+
+        if (
+            not math.isfinite(portfolio.total_equity)
+            or portfolio.total_equity <= 0
+            or any(not math.isfinite(position.market_value) for position in portfolio.positions)
+        ):
+            return RiskAssessment(
+                overall_score=1.0,
+                blockers=("invalid portfolio valuation",),
+                dimensions={"concentration": 1.0},
+            )
 
         weight = abs(portfolio.weight(instrument))
+        if not math.isfinite(weight):
+            return RiskAssessment(
+                overall_score=1.0,
+                blockers=("invalid portfolio concentration weight",),
+                dimensions={"concentration": 1.0},
+            )
         risk_score = min(1.0, weight / self.blocker_weight)
         blockers: tuple[str, ...] = ()
         warnings: tuple[str, ...] = ()

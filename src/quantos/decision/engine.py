@@ -77,7 +77,9 @@ class RuleBasedDecisionSynthesizer:
                 instrument=instrument,
                 as_of=as_of,
                 evidence=tuple(evidence),
-                risk=risk_by_instrument.get(instrument, RiskAssessment(overall_score=0.0)),
+                risk=risk_by_instrument.get(instrument) or RiskAssessment(
+                    overall_score=1.0, blockers=("risk assessment unavailable",),
+                ),
             )
             for instrument, evidence in evidence_by_instrument.items()
         ]
