@@ -1,5 +1,6 @@
 from dataclasses import FrozenInstanceError, replace
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
+from importlib.metadata import version
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -12,6 +13,7 @@ from quantos.learning import (
     KnowledgeKind,
     OutcomeObservation,
     ScoringStatus,
+    SessionCloseHorizon,
     scoring_status,
 )
 
@@ -250,3 +252,117 @@ def test_revision_does_not_replace_original_available_evidence():
     with pytest.raises(ValueError, match="unavailable"):
         replace(h, version=2, evidence=(revision,))
     assert h.evidence[0].content_sha256 == "a" * 64
+
+
+@pytest.fixture(scope="module")
+def nyse_close():
+    return SessionCloseHorizon.from_calendar(
+        "XNYS", 1, start=date(2026, 1, 1), end=date(2026, 12, 31),
+    )
+
+
+@pytest.mark.parametrize(("registered", "expected"), [
+    ("2026-11-25T20:59:59.999999+00:00", "2026-11-25T21:00:00+00:00"),
+    ("2026-11-25T21:00:00+00:00", "2026-11-27T18:00:00+00:00"),
+    ("2026-11-26T20:00:00+00:00", "2026-11-27T18:00:00+00:00"),
+    ("2026-11-27T17:59:59.999999+00:00", "2026-11-27T18:00:00+00:00"),
+    ("2026-11-28T02:00:00+08:00", "2026-11-30T21:00:00+00:00"),
+    ("2026-11-28T10:00:00+08:00", "2026-11-30T21:00:00+00:00"),
+    ("2026-03-06T21:00:00+00:00", "2026-03-09T20:00:00+00:00"),
+    ("2026-10-30T20:00:00+00:00", "2026-11-02T21:00:00+00:00"),
+])
+def test_session_horizon_counts_strictly_future_closes(nyse_close, registered, expected):
+    result = nyse_close.target_after(datetime.fromisoformat(registered))
+    assert result.tzinfo is UTC
+    assert result == datetime.fromisoformat(expected)
+
+
+def test_session_forecast_uses_registration_time_and_waits_for_its_actual_label(nyse_close):
+    registered = datetime(2026, 11, 25, 21, tzinfo=UTC)
+    rule = replace(nyse_close, sessions=2)
+    h = hypothesis(horizon_seconds=None, session_horizon=rule)
+    target = rule.target_after(registered)
+    assert target == datetime(2026, 11, 30, 21, tzinfo=UTC)
+    with pytest.raises(ValueError, match="horizon"):
+        forecast(hypothesis=h, registered_at=registered, target_end=registered + timedelta(days=2))
+    f = forecast(hypothesis=h, registered_at=registered, target_end=target)
+    o = outcome(target_end=target, available_at=target + timedelta(minutes=10))
+    premature = registered + timedelta(days=2)
+    assert scoring_status(f, o, as_of=premature) is ScoringStatus.PENDING_HORIZON
+    assert scoring_status(f, None, as_of=target) is ScoringStatus.PENDING_OUTCOME
+    assert scoring_status(f, o, as_of=target) is ScoringStatus.PENDING_AVAILABILITY
+    assert scoring_status(f, o, as_of=o.available_at) is ScoringStatus.READY
+
+
+def test_session_calendar_versions_and_coverage_fail_closed(nyse_close, monkeypatch):
+    assert nyse_close.calendar_version == version("exchange_calendars")
+    assert nyse_close.calendar_name == "XNYS"
+    t = datetime(2026, 11, 26, 12, tzinfo=UTC)
+    target = nyse_close.target_after(t)
+    h = hypothesis(horizon_seconds=None, session_horizon=nyse_close)
+    f = forecast(hypothesis=h, registered_at=t, target_end=target)
+    for late in (datetime(2026, 12, 31, 21, tzinfo=UTC), datetime(2025, 12, 30, tzinfo=UTC)):
+        with pytest.raises(ValueError, match="coverage"):
+            nyse_close.target_after(late)
+    with pytest.raises(ValueError, match="coverage"):
+        replace(nyse_close, sessions=300).target_after(t)
+    with pytest.raises(ValueError, match="version"):
+        replace(nyse_close, calendar_version="unavailable-version").target_after(t)
+    with pytest.raises(ValueError, match="timezone-aware"):
+        nyse_close.target_after(t.replace(tzinfo=None))
+
+    def changed_schedule(*args):
+        raise AssertionError("scoring attempted to resolve a frozen deadline")
+
+    monkeypatch.setattr(SessionCloseHorizon, "target_after", changed_schedule)
+    matured = outcome(target_end=target, available_at=target)
+    assert scoring_status(f, matured, as_of=target) is ScoringStatus.READY
+
+
+def test_session_horizon_cannot_override_an_elapsed_contract(nyse_close):
+    assert hypothesis().horizon_seconds == 3600
+    with pytest.raises(ValueError, match="horizon"):
+        hypothesis(session_horizon=nyse_close)
+    with pytest.raises(ValueError, match="horizon"):
+        hypothesis(horizon_seconds=None)
+    with pytest.raises(ValueError, match="horizon"):
+        hypothesis(horizon_seconds=None, session_horizon="XNYS")
+    for invalid in (True, 0, -1, 1.5):
+        with pytest.raises(ValueError, match="sessions"):
+            replace(nyse_close, sessions=invalid)
+
+
+def test_calendar_window_starting_on_a_holiday_or_at_an_overnight_open():
+    rule = SessionCloseHorizon.from_calendar(
+        "XNYS", 1, start=date(2026, 11, 26), end=date(2026, 11, 30),
+    )
+    thanksgiving = datetime(2026, 11, 26, 15, tzinfo=UTC)
+    assert rule.target_after(thanksgiving) == datetime(2026, 11, 27, 18, tzinfo=UTC)
+    with pytest.raises(ValueError, match="coverage"):
+        rule.target_after(datetime(2026, 11, 25, 17, tzinfo=UTC))
+
+    all_days = SessionCloseHorizon.from_calendar(
+        "24/7", 1, start=date(2026, 11, 26), end=date(2026, 11, 30),
+    )
+    first_open = datetime(2026, 11, 26, tzinfo=UTC)
+    assert all_days.target_after(first_open) == first_open + timedelta(days=1)
+
+
+def test_default_calendar_window_is_captured_and_reproducible():
+    rule = SessionCloseHorizon.from_calendar("XNYS", 1)
+    middle_day = rule.schedule_start + (rule.schedule_end - rule.schedule_start) // 2
+    instant = datetime.combine(middle_day, datetime.min.time(), tzinfo=UTC)
+    explicit = SessionCloseHorizon.from_calendar(
+        "XNYS", 1, start=rule.schedule_start, end=rule.schedule_end,
+    )
+    assert explicit == rule
+    assert explicit.target_after(instant) == rule.target_after(instant)
+
+
+def test_calendar_alias_is_canonical_and_unknown_venue_has_no_fallback():
+    from exchange_calendars.errors import InvalidCalendarName
+
+    start, end = date(2026, 11, 25), date(2026, 11, 30)
+    assert SessionCloseHorizon.from_calendar("NYSE", 1, start=start, end=end).calendar_name == "XNYS"
+    with pytest.raises(InvalidCalendarName):
+        SessionCloseHorizon.from_calendar("UNKNOWN-TEST-VENUE", 1, start=start, end=end)
