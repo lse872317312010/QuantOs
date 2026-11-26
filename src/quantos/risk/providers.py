@@ -8,6 +8,7 @@ from typing import Any
 
 from quantos.contracts import Evidence, EvidenceDomain, RiskAssessment
 from quantos.portfolio import PortfolioSnapshot
+from quantos.time import as_utc
 
 
 class DataQualityRiskProvider:
@@ -31,9 +32,9 @@ class DataQualityRiskProvider:
         relevant = [item for item in evidence if item.domain is EvidenceDomain.DATA_QUALITY]
         if not relevant:
             return RiskAssessment(
-                overall_score=0.7,
-                warnings=("no data-quality evidence",),
-                dimensions={"data_quality": 0.7},
+                overall_score=1.0,
+                blockers=("no data-quality evidence",),
+                dimensions={"data_quality": 1.0},
             )
 
         minimum_confidence = min(item.confidence for item in relevant)
@@ -84,9 +85,9 @@ class LiquidityRiskProvider:
         ]
         if not spreads:
             return RiskAssessment(
-                overall_score=0.5,
-                warnings=("liquidity evidence unavailable",),
-                dimensions={"liquidity": 0.5},
+                overall_score=1.0,
+                blockers=("liquidity evidence unavailable",),
+                dimensions={"liquidity": 1.0},
             )
 
         spread = max(spreads)
@@ -133,12 +134,14 @@ class ConcentrationRiskProvider:
         portfolio = context.get("portfolio")
         if portfolio is None:
             return RiskAssessment(
-                overall_score=0.0,
-                warnings=("portfolio context unavailable",),
-                dimensions={"concentration": 0.0},
+                overall_score=1.0,
+                blockers=("portfolio context unavailable",),
+                dimensions={"concentration": 1.0},
             )
         if not isinstance(portfolio, PortfolioSnapshot):
             raise TypeError("context['portfolio'] must be a PortfolioSnapshot")
+        if portfolio.as_of > as_utc(as_of):
+            raise ValueError("portfolio snapshot is newer than the risk cutoff")
 
         weight = abs(portfolio.weight(instrument))
         risk_score = min(1.0, weight / self.blocker_weight)

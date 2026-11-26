@@ -1,4 +1,6 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
+
+import pytest
 
 from quantos.contracts import Evidence, EvidenceDomain
 from quantos.portfolio import PortfolioSnapshot, Position
@@ -93,3 +95,21 @@ def test_data_quality_and_liquidity_can_block_candidate() -> None:
     )
     assert len(batch.assessment.blockers) == 2
     assert batch.assessment.overall_score == 1.0
+
+
+@pytest.mark.parametrize(
+    "providers", [(), (DataQualityRiskProvider(),), (LiquidityRiskProvider(),), (ConcentrationRiskProvider(),)]
+)
+def test_missing_inputs_for_configured_risk_checks_block(providers) -> None:
+    result = RiskEngine(providers).assess(instrument="X", as_of=NOW, evidence=(), context={})
+    assert result.assessment.blockers
+    assert result.assessment.overall_score == 1.0
+
+
+def test_future_portfolio_cannot_clear_concentration_risk() -> None:
+    later = PortfolioSnapshot(as_of=NOW + timedelta(seconds=1), total_equity=1000.0)
+    result = RiskEngine((ConcentrationRiskProvider(),)).assess(
+        instrument="X", as_of=NOW, evidence=(), context={"portfolio": later},
+    )
+    assert result.assessment.blockers
+    assert "newer" in result.failures[0].error

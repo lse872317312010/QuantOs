@@ -9,6 +9,7 @@ from typing import Any
 
 from quantos.contracts import Evidence, RiskAssessment
 from quantos.interfaces import RiskProvider
+from quantos.time import as_utc
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,19 +40,20 @@ class RiskEngine:
         evidence: Sequence[Evidence],
         context: dict[str, Any],
     ) -> RiskBatch:
+        as_of = as_utc(as_of)
+        for item in evidence:
+            item.require_available(as_of)
         assessments: list[RiskAssessment] = []
         failures: list[RiskFailure] = []
 
         for provider in self.providers:
             try:
-                assessments.append(
-                    provider.assess(
-                        instrument=instrument,
-                        as_of=as_of,
-                        evidence=evidence,
-                        context=context,
-                    )
+                result = provider.assess(
+                    instrument=instrument, as_of=as_of, evidence=evidence, context=context,
                 )
+                if not isinstance(result, RiskAssessment):
+                    raise TypeError("risk provider must return a RiskAssessment")
+                assessments.append(result)
             except Exception as exc:  # noqa: BLE001 - isolate independent risk providers
                 failures.append(RiskFailure(provider=provider.name, error=str(exc)))
 
@@ -66,8 +68,11 @@ class RiskEngine:
             for name, value in assessment.dimensions.items():
                 dimensions[name] = max(dimensions.get(name, 0.0), value)
 
-        if failures:
-            warnings.append("one or more risk providers failed")
+        if not self.providers:
+            blockers.append("no risk providers configured")
+        blockers.extend(f"risk provider unavailable: {failure.provider}" for failure in failures)
+        if failures or not self.providers:
+            overall_score = 1.0
 
         combined = RiskAssessment(
             overall_score=overall_score,

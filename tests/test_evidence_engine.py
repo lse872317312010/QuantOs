@@ -1,4 +1,7 @@
-from datetime import UTC, datetime
+from dataclasses import replace
+from datetime import UTC, datetime, timedelta
+
+import pytest
 
 from quantos.contracts import EvidenceDomain
 from quantos.data import (
@@ -72,6 +75,20 @@ def test_evidence_engine_isolates_provider_failure() -> None:
 
     assert batch.evidence == ()
     assert batch.failures[0].provider == "broken"
+
+
+def test_required_empty_evidence_and_future_market_snapshot_are_visible():
+    provider = TopOfBookLiquidityEvidenceProvider()
+    with pytest.raises(ValueError, match="unknown required"):
+        EvidenceEngine((provider,), required_providers=("misspelled",))
+    engine = EvidenceEngine((provider,), required_providers=(provider.name,))
+    for snap in (replace(snapshot(), values={}), replace(snapshot(), as_of=NOW + timedelta(seconds=1))):
+        batch = engine.collect(instrument=snap.instrument_id, as_of=NOW, context={"snapshot": snap})
+        assert batch.evidence == ()
+        assert batch.failures[0].required
+
+    wrong = engine.collect(instrument="OTHER", as_of=NOW, context={"snapshot": snapshot()})
+    assert "different instrument" in wrong.failures[0].error
 
 
 def test_anomaly_and_regime_providers_add_independent_domains() -> None:
