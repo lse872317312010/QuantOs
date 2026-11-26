@@ -92,10 +92,45 @@ that a present-day LLM lacks knowledge of subsequent historical outcomes. Model/
 versions and contamination limitations must be disclosed; prospective shadow evaluation
 is a separate, stronger test.
 
-A forecast for a five-day horizon is PENDING until that horizon closes and the final
-label becomes available. Intraday price changes may update monitoring, not finalize a
-five-day success label. Trading-day horizons must be resolved by the existing calendar
-adapter before creating an explicit target timestamp; this contract uses elapsed seconds.
+### Registering a forecast with a trading-session deadline
+
+Elapsed-time forecasts keep their positive integer `horizon_seconds`. To specify a
+trading-session horizon, capture a named calendar, set `horizon_seconds=None`, and
+pass the frozen rule as `HypothesisSpec.session_horizon`. Use the **forecast**
+registration instant to resolve its UTC target. `ForecastRegistration` verifies
+the supplied target against that same rule.
+
+```python
+from datetime import UTC, date, datetime
+from quantos.learning import SessionCloseHorizon
+
+rule = SessionCloseHorizon.from_calendar(
+    "XNYS", 1, start=date(2026, 1, 1), end=date(2026, 12, 31),
+)
+registered = datetime(2026, 11, 25, 21, tzinfo=UTC)
+target = rule.target_after(registered)  # 2026-11-27 18:00 UTC
+```
+
+Count scheduled regular closes strictly after registration. A registration before
+today's close can count today. At the closing instant the next close counts first.
+In the example Thanksgiving is closed and Friday has a 13:00 New York close. A
+label arriving ten minutes later becomes eligible at 18:10 UTC. A missing label
+remains pending after the close. The fixture is an engineering example.
+[NYSE trading hours and holidays](https://www.nyse.com/trade/hours-calendars)
+
+The rule records the canonical calendar name, session count, installed
+`exchange_calendars` version and schedule bounds. Explicit bounds support
+historical replay. The existing research extra supplies the calendar offline.
+An unknown calendar, missing version match or insufficient coverage prevents
+new registration. Scoring reads the originally registered UTC deadline. Retain
+the pinned environment for reconstructing a calendar-based registration.
+[Upstream calendar and licensing](https://pypi.org/project/exchange_calendars/4.13.3/)
+
+An already registered duration keeps its original meaning. If an earlier study
+called 86,400 seconds a trading day, preserve that artifact and create a separately
+versioned replay when its original registration times and outcomes are available.
+A subsequently revised exchange schedule also calls for a separate version
+with its own evidence.
 
 ## What 'real-time backtesting' means here
 
