@@ -100,6 +100,13 @@ class DataQualityReport:
     issues: tuple[str, ...] = ()
     metadata: dict[str, Any] = field(default_factory=dict)
 
+    @classmethod
+    def unavailable(cls, source_id: str, as_of: datetime, reason: str) -> DataQualityReport:
+        return cls(
+            source_id=source_id, as_of=as_of, state=DataQualityState.UNAVAILABLE,
+            freshness_s=None, completeness=None, issues=(reason,),
+        )
+
     def __post_init__(self) -> None:
         if self.as_of.tzinfo is None:
             raise ValueError("as_of must be timezone-aware")

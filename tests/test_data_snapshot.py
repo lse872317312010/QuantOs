@@ -2,6 +2,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import duckdb
+import pytest
 
 from quantos.data import (
     AnalyticalCatalog,
@@ -9,6 +10,7 @@ from quantos.data import (
     DataSource,
     SnapshotBuilder,
     SnapshotSourceQuery,
+    catalog_health,
 )
 
 
@@ -26,7 +28,7 @@ def test_snapshot_builder_combines_two_sources_without_future_leakage(tmp_path: 
     write_parquet(
         book,
         """
-        SELECT * FROM (
+        SELECT *, ts_event AS ts_received FROM (
             VALUES
                 ('SPYBUSDT.BINANCE', TIMESTAMPTZ '2026-10-04 00:00:00+00', 100.0, 100.2),
                 ('SPYBUSDT.BINANCE', TIMESTAMPTZ '2026-10-04 00:00:03+00', 103.0, 103.2)
@@ -36,7 +38,7 @@ def test_snapshot_builder_combines_two_sources_without_future_leakage(tmp_path: 
     write_parquet(
         reference,
         """
-        SELECT * FROM (
+        SELECT *, ts_event AS ts_received FROM (
             VALUES
                 ('SPYBUSDT.BINANCE', TIMESTAMPTZ '2026-10-04 00:00:01+00', 100.1),
                 ('SPYBUSDT.BINANCE', TIMESTAMPTZ '2026-10-04 00:00:04+00', 104.1)
@@ -109,3 +111,24 @@ def test_snapshot_builder_marks_unregistered_source_unavailable(tmp_path: Path) 
     )
     assert snapshot.source_ids == ()
     assert snapshot.quality[0].state is DataQualityState.UNAVAILABLE
+
+
+def test_legacy_event_only_source_cannot_leak_into_snapshot_or_health(tmp_path: Path):
+    cutoff = datetime(2026, 10, 4, tzinfo=UTC)
+    catalog = AnalyticalCatalog(tmp_path / "catalog.duckdb")
+    path = tmp_path / "old.parquet"
+    write_parquet(path, "SELECT 'X' AS id, TIMESTAMPTZ '2026-10-03 00:00:00+00' AS ts_event, 10 AS px")
+    catalog.register_source(DataSource("old", "test", "quotes", "parquet"), parquet_path=path)
+    with pytest.raises(ValueError, match="ts_received"):
+        catalog.query_as_of("old", as_of=cutoff, timestamp_column="ts_event")
+    catalog.register_source(
+        DataSource("local", "test", "local observations", "parquet", metadata={"availability_column": "ts_event"}),
+        parquet_path=path,
+    )
+    sources = tuple(SnapshotSourceQuery(key, "ts_event", "id", ("px",), key + "_") for key in ("old", "local"))
+    snap = SnapshotBuilder(catalog).build("X", as_of=cutoff, sources=sources)
+    assert snap.values == {"local_px": 10}
+    assert snap.source_ids == ("local",)
+    assert "ts_received" in snap.quality[0].issues[0]
+    health = {report.source_id: report.state for report in catalog_health(catalog, as_of=cutoff)}
+    assert health == {"old": DataQualityState.UNAVAILABLE, "local": DataQualityState.HEALTHY}

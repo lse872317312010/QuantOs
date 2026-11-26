@@ -100,10 +100,8 @@ def label_us_equity_sessions(frame: pl.DataFrame) -> pl.DataFrame:
         .alias("market_date")
     )
 
-    minimum_ms = int(frame["observed_timestamp_ms"].min())
-    maximum_ms = int(frame["observed_timestamp_ms"].max())
-    start = datetime.fromtimestamp(minimum_ms / 1000, tz=UTC).date()
-    end = datetime.fromtimestamp(maximum_ms / 1000, tz=UTC).date()
+    start = date.fromisoformat(frame["market_date"].min())
+    end = date.fromisoformat(frame["market_date"].max())
     windows = _session_windows(start, end).sort("pre_open_ms")
 
     joined = frame.sort("observed_timestamp_ms").join_asof(
@@ -165,6 +163,17 @@ def _freshness_bucket() -> pl.Expr:
     )
 
 
+def _known_at_sample(frame: pl.DataFrame) -> pl.Expr:
+    observed = pl.col("observed_timestamp_ms")
+    legacy = pl.lit(None, dtype=pl.Int64)
+    if "book_update_id" in frame.columns:
+        legacy = pl.when(pl.col("book_update_id").is_not_null()).then(observed)
+    available = legacy
+    if "available_timestamp_ms" in frame.columns:
+        available = pl.coalesce(pl.col("available_timestamp_ms").cast(pl.Int64), legacy)
+    return (available <= observed).fill_null(False)
+
+
 def prepare_signals(
     frame: pl.DataFrame,
     *,
@@ -175,7 +184,11 @@ def prepare_signals(
     _require_columns(frame)
 
     cleaned = frame.filter(
-        (pl.col("observed_timestamp_ms") > 0)
+        _known_at_sample(frame)
+        & (pl.col("observed_timestamp_ms") > 0)
+        & (pl.col("reference_lag_ms") >= 0)
+        & (pl.col("book_age_ms") >= 0)
+        & (pl.col("reference_receive_age_ms") >= 0)
         & (pl.col("bid") > 0)
         & (pl.col("ask") >= pl.col("bid"))
         & (pl.col("mid") > 0)
@@ -376,7 +389,7 @@ def analyze_file(
         max_reference_lag_ms=max_reference_lag_ms,
     )
     if signals.is_empty():
-        raise ValueError("No usable observations remain after cleaning")
+        raise ValueError("No usable observations remain after checking capture availability and cleaning")
 
     outcomes = apply_cost_model(
         forward_outcomes(
@@ -440,6 +453,9 @@ def analyze_file(
         json.dumps(
             {
                 "input": str(source),
+                "input_observations": raw.height,
+                "unverified_or_late_observations": raw.select((~_known_at_sample(raw)).sum()).item(),
+                "usable_observations": signals.height,
                 "horizons_s": horizons_s,
                 "max_event_age_ms": max_event_age_ms,
                 "max_reference_lag_ms": max_reference_lag_ms,

@@ -31,6 +31,7 @@ def raw_row(
     timestamp_ms = epoch_ms(when)
     return {
         "observed_timestamp_ms": timestamp_ms,
+        "book_update_id": 42,
         "symbol": "SPYBUSDT",
         "bid": bid,
         "ask": ask,
@@ -79,6 +80,26 @@ def test_prepare_signals_filters_stale_stream_events() -> None:
     assert result["preferred_side"].to_list() == ["LONG"]
     assert result["freshness_bucket"].to_list() == ["0-1s"]
     assert result["market_session"].to_list() == ["REGULAR"]
+
+
+def test_winter_evening_uses_local_calendar_when_utc_is_already_tomorrow():
+    timestamp = epoch_ms(datetime(2026, 11, 2, 19, 30, tzinfo=NY))
+    result = label_us_equity_sessions(pl.DataFrame({"observed_timestamp_ms": [timestamp]}))
+    assert result["market_date"].to_list() == ["2026-11-02"]
+    assert result["market_session"].to_list() == ["AFTER"]
+
+
+def test_prepare_signals_requires_the_pair_to_be_known_at_its_recorded_entry():
+    row = raw_row(datetime(2026, 9, 30, 10, 0, tzinfo=NY))
+    when = row["observed_timestamp_ms"]
+    rows = [
+        dict(row, symbol="old-stream"),
+        dict(row, symbol="old-rest", book_update_id=None),
+        dict(row, symbol="new-rest", book_update_id=None, available_timestamp_ms=when),
+        dict(row, symbol="late", available_timestamp_ms=when + 1),
+        dict(row, symbol="future-reference", reference_lag_ms=-10),
+    ]
+    assert set(prepare_signals(pl.DataFrame(rows))["symbol"]) == {"old-stream", "new-rest"}
 
 
 def test_forward_outcome_uses_executable_exit_side() -> None:

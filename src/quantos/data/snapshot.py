@@ -2,18 +2,19 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
-from .catalog import AnalyticalCatalog
-from .models import DataQualityReport, DataSource, MarketSnapshot
+from .catalog import AnalyticalCatalog, SourceAvailabilityError
+from .models import DataQualityReport, MarketSnapshot
 from .quality import assess_data_quality
 
 
 @dataclass(frozen=True, slots=True)
 class SnapshotSourceQuery:
-    """How one registered source contributes fields to an analytical snapshot."""
+    """Required value fields contributed by one registered source to a snapshot."""
 
     source_id: str
     timestamp_column: str
@@ -41,24 +42,31 @@ class SnapshotBuilder:
         values: dict[str, Any] = {}
         quality_reports: list[DataQualityReport] = []
         used_sources: list[str] = []
+        registrations = self.catalog.registered_sources(tuple(spec.source_id for spec in sources))
 
         for spec in sources:
-            source = self.catalog.get_source(spec.source_id)
-            if source is None:
+            registration = registrations.get(spec.source_id)
+            if registration is None:
                 quality_reports.append(
-                    self._missing_source_report(spec.source_id, as_of)
+                    DataQualityReport.unavailable(spec.source_id, as_of, "unregistered data source")
                 )
                 continue
+            source = registration.source
 
-            rows = self.catalog.query_as_of(
-                spec.source_id,
-                as_of=as_of,
-                timestamp_column=spec.timestamp_column,
-                instrument_column=spec.instrument_column,
-                instrument_id=instrument_id,
-                columns=(spec.timestamp_column, *spec.value_columns),
-                limit=1,
-            )
+            try:
+                rows = self.catalog.query_as_of(
+                    spec.source_id,
+                    as_of=as_of,
+                    timestamp_column=spec.timestamp_column,
+                    instrument_column=spec.instrument_column,
+                    instrument_id=instrument_id,
+                    columns=(spec.timestamp_column, *spec.value_columns),
+                    limit=1,
+                    registration=registration,
+                )
+            except (SourceAvailabilityError, KeyError) as exc:
+                quality_reports.append(DataQualityReport.unavailable(spec.source_id, as_of, str(exc)))
+                continue
             if not rows:
                 quality_reports.append(
                     assess_data_quality(
@@ -72,6 +80,18 @@ class SnapshotBuilder:
 
             row = rows[0]
             event_time = row[spec.timestamp_column]
+            invalid = [
+                column for column in spec.value_columns
+                if row[column] is None
+                or (isinstance(row[column], float) and not math.isfinite(row[column]))
+            ]
+            if invalid:
+                # Do not skip to an older observation or publish partial values
+                # as healthy evidence when the latest required payload is unusable.
+                quality_reports.append(DataQualityReport.unavailable(
+                    spec.source_id, as_of, f"unusable values: {', '.join(invalid)}",
+                ))
+                continue
             for column in spec.value_columns:
                 values[f"{spec.prefix}{column}"] = row[column]
 
@@ -91,19 +111,4 @@ class SnapshotBuilder:
             values=values,
             source_ids=tuple(used_sources),
             quality=tuple(quality_reports),
-        )
-
-    @staticmethod
-    def _missing_source_report(source_id: str, as_of: datetime) -> DataQualityReport:
-        placeholder = DataSource(
-            source_id=source_id,
-            provider="unknown",
-            dataset="unregistered",
-            source_type="unknown",
-        )
-        return assess_data_quality(
-            placeholder,
-            as_of=as_of,
-            last_event_at=None,
-            observed_count=0,
         )
