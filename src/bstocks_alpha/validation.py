@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date
-from math import floor
+from math import floor, isfinite
 
 import polars as pl
 
@@ -25,8 +25,8 @@ class CostModel:
             self.slippage_bps_per_side,
             self.short_borrow_bps_per_day,
         )
-        if any(value < 0 for value in values):
-            raise ValueError("cost assumptions must be non-negative")
+        if any(not isfinite(value) or value < 0 for value in values):
+            raise ValueError("cost assumptions must be finite and non-negative")
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,14 +37,39 @@ class HoldoutSplit:
     test_dates: int
 
 
+def _matched_holding_ms(outcomes: pl.DataFrame) -> pl.Expr:
+    target_ms = pl.col("horizon_s") * 1_000
+    has_lag = "forward_match_lag_ms" in outcomes.columns
+    lag = pl.col("forward_match_lag_ms")
+    if MATCHED_EXIT_MS in outcomes.columns and "observed_timestamp_ms" in outcomes.columns:
+        duration = pl.col(MATCHED_EXIT_MS) - pl.col("observed_timestamp_ms")
+        valid = duration >= target_ms
+        if has_lag:
+            valid &= lag.is_null() | (duration == target_ms + lag)
+    elif has_lag:
+        # Older exports retained the offset from the target to the matched quote.
+        duration = target_ms + lag
+        valid = lag >= 0
+        if MATCHED_EXIT_MS in outcomes.columns:
+            valid &= pl.col(MATCHED_EXIT_MS).is_not_null()
+    else:
+        return pl.lit(None, dtype=pl.Float64)
+    return pl.when((target_ms > 0) & duration.is_finite() & valid).then(duration)
+
+
 def apply_cost_model(outcomes: pl.DataFrame, model: CostModel) -> pl.DataFrame:
     """Subtract taker fees, additional slippage and prorated short borrow from gross return."""
     round_trip_fee_bps = 2.0 * model.taker_fee_bps_per_side
     round_trip_slippage_bps = 2.0 * model.slippage_bps_per_side
 
+    short_borrow = pl.lit(0.0)
+    if model.short_borrow_bps_per_day:
+        short_borrow = _matched_holding_ms(outcomes) * (model.short_borrow_bps_per_day / 86_400_000)
     borrow_cost = (
-        pl.when(pl.col("preferred_side") == "SHORT")
-        .then(model.short_borrow_bps_per_day * pl.col("horizon_s") / 86_400.0)
+        pl.when(pl.col("forward_trade_return_bps").is_null())
+        .then(None)
+        .when(pl.col("preferred_side") == "SHORT")
+        .then(short_borrow)
         .otherwise(0.0)
         .alias("borrow_cost_bps")
     )
