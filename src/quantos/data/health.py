@@ -19,7 +19,8 @@ def catalog_health(
         raise ValueError("as_of must be timezone-aware")
 
     reports: list[DataQualityReport] = []
-    for source in catalog.list_sources():
+    for registration in catalog.registered_sources().values():
+        source = registration.source
         timestamp_column = str(source.metadata.get("timestamp_column", "ts_event"))
         try:
             rows = catalog.query_as_of(
@@ -28,6 +29,7 @@ def catalog_health(
                 timestamp_column=timestamp_column,
                 columns=(timestamp_column,),
                 limit=1,
+                registration=registration,
             )
         except (SourceAvailabilityError, KeyError) as exc:
             reports.append(DataQualityReport.unavailable(source.source_id, as_of, str(exc)))
