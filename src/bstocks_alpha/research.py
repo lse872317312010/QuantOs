@@ -233,6 +233,14 @@ def forward_outcomes(
             pl.lit(None, dtype=pl.Float64).alias("forward_trade_return_bps"),
         ).head(0)
 
+    # A millisecond timestamp alone cannot order multiple observations of one
+    # symbol. Do not let input order decide an exit or inflate the sample count.
+    if signals.select("symbol", "observed_timestamp_ms").is_duplicated().any():
+        raise ValueError(
+            "Duplicate (symbol, observed_timestamp_ms) research keys; "
+            "use a source with unambiguous observation times"
+        )
+
     future = signals.select(
         "symbol",
         "observed_timestamp_ms",
