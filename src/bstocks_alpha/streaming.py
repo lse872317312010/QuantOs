@@ -85,6 +85,9 @@ class LiveBasisState:
         observed: datetime | None = None,
     ) -> list[BasisObservation]:
         sampled_at = observed or datetime.now(UTC)
+        if sampled_at.utcoffset() is None:
+            raise ValueError("sample time must be timezone-aware")
+        sampled_at = sampled_at.astimezone(UTC)
         observed_timestamp_ms = int(sampled_at.timestamp() * 1000)
         observations: list[BasisObservation] = []
 
@@ -92,6 +95,8 @@ class LiveBasisState:
             book = self._books.get(instrument.symbol)
             reference = self._references.get(instrument.symbol)
             if book is None or reference is None:
+                continue
+            if max(book.received_timestamp_ms, reference.received_timestamp_ms) > observed_timestamp_ms:
                 continue
 
             try:
@@ -105,11 +110,8 @@ class LiveBasisState:
                         },
                         observed_at_utc=sampled_at.isoformat(),
                         observed_timestamp_ms=observed_timestamp_ms,
-                        book_age_ms=max(0, observed_timestamp_ms - book.received_timestamp_ms),
-                        reference_receive_age_ms=max(
-                            0,
-                            observed_timestamp_ms - reference.received_timestamp_ms,
-                        ),
+                        book_age_ms=observed_timestamp_ms - book.received_timestamp_ms,
+                        reference_receive_age_ms=observed_timestamp_ms - reference.received_timestamp_ms,
                         book_update_id=book.update_id,
                     )
                 )
