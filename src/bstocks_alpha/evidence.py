@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -115,7 +115,9 @@ class BStocksResearchGateEvidenceProvider:
         if any(key not in context for key in required_context):
             return ()
 
-        frame = pl.read_csv(self.path)
+        frame = pl.read_csv(self.path, raise_if_empty=False)
+        if frame.is_empty():
+            return ()
         required_columns = {
             "horizon_s",
             "market_session",
@@ -125,6 +127,8 @@ class BStocksResearchGateEvidenceProvider:
         }
         if not required_columns.issubset(frame.columns):
             raise ValueError("promotion gate is missing required research columns")
+        if "available_at" not in frame.columns:
+            raise ValueError("promotion gate lacks available_at; rerun bstocks-analyze from observations")
 
         matched = frame.filter(
             (pl.col("horizon_s") == int(context["horizon_s"]))
@@ -134,8 +138,15 @@ class BStocksResearchGateEvidenceProvider:
         )
         if matched.is_empty():
             return ()
-
+        if matched.height != 1:
+            raise ValueError("ambiguous promotion gate: expected one row per research cell")
         row = matched.row(0, named=True)
+        available_at = datetime.fromisoformat(row["available_at"])
+        if available_at.utcoffset() is None or as_of.utcoffset() is None:
+            raise ValueError("promotion gate availability and as_of must be timezone-aware")
+        available_at = available_at.astimezone(UTC)
+        if available_at > as_of.astimezone(UTC):
+            return ()
         state = str(row["research_state"])
         positive_rate = row.get("positive_oos_fold_rate")
         confidence = {
@@ -178,7 +189,7 @@ class BStocksResearchGateEvidenceProvider:
                 domain=EvidenceDomain.STRATEGY,
                 source=self.name,
                 summary=f"research validation state {state}",
-                observed_at=as_of,
+                observed_at=available_at,
                 confidence=confidence,
                 directional_score=directional_score,
                 metadata=metadata,

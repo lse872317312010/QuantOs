@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date
 from math import floor
 
 import polars as pl
+
+MATCHED_EXIT_MS = "_future_timestamp_ms"
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,6 +70,37 @@ def apply_cost_model(outcomes: pl.DataFrame, model: CostModel) -> pl.DataFrame:
     )
 
 
+def purge_overlapping_labels(
+    tagged: pl.DataFrame, *, train_before: str, test_through: str,
+) -> pl.DataFrame:
+    """Keep the matched exit inside its window, retaining excluded rows for audit."""
+    returns = [
+        name for name in ("forward_trade_return_bps", "net_forward_trade_return_bps")
+        if name in tagged.columns
+    ]
+    if not returns:
+        return tagged  # Plain date partitions have no outcome labels.
+    if MATCHED_EXIT_MS not in tagged.columns:
+        raise ValueError(f"Missing {MATCHED_EXIT_MS}: rebuild labels from the original observations")
+    scored = pl.any_horizontal(pl.col(name).is_not_null() for name in returns)
+    if tagged.select((scored & pl.col(MATCHED_EXIT_MS).is_null()).any()).item():
+        raise ValueError(f"A scored return is missing its observed exit ({MATCHED_EXIT_MS})")
+
+    exit_date = (
+        pl.from_epoch(pl.col(MATCHED_EXIT_MS), time_unit="ms")
+        .dt.convert_time_zone("America/New_York")
+        .dt.date()
+    )
+    crosses_train = (pl.col("sample") == "TRAIN") & (exit_date >= date.fromisoformat(train_before))
+    crosses_test = (pl.col("sample") == "TEST") & (exit_date > date.fromisoformat(test_through))
+    return tagged.with_columns(
+        pl.when(crosses_train | crosses_test)
+        .then(pl.lit("PURGED"))
+        .otherwise(pl.col("sample"))
+        .alias("sample")
+    )
+
+
 def chronological_holdout(
     outcomes: pl.DataFrame,
     *,
@@ -92,13 +126,17 @@ def chronological_holdout(
     cutoff_date = str(dates[train_date_count - 1])
 
     tagged = outcomes.with_columns(
-        pl.when(pl.col("market_date") <= cutoff_date)
+        pl.when(pl.col("market_date").is_null())
+        .then(pl.lit("UNSPLIT"))
+        .when(pl.col("market_date") <= cutoff_date)
         .then(pl.lit("TRAIN"))
         .otherwise(pl.lit("TEST"))
         .alias("sample")
     )
     return HoldoutSplit(
-        frame=tagged,
+        frame=purge_overlapping_labels(
+            tagged, train_before=str(dates[train_date_count]), test_through=str(dates[-1]),
+        ),
         cutoff_date=cutoff_date,
         train_dates=train_date_count,
         test_dates=len(dates) - train_date_count,
@@ -113,7 +151,7 @@ def summarize_holdout(outcomes: pl.DataFrame) -> pl.DataFrame:
         raise ValueError(f"Holdout summary missing required columns: {missing}")
 
     return (
-        outcomes.group_by(
+        outcomes.filter(pl.col("sample") != "PURGED").group_by(
             "sample",
             "horizon_s",
             "market_session",

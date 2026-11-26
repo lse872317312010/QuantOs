@@ -45,6 +45,7 @@ def threshold_stability_report(
         daily = (
             outcomes.filter(
                 (pl.col("gross_convergence_edge_bps") >= threshold)
+                & (pl.col("sample") != "PURGED")
                 & pl.col("net_forward_trade_return_bps").is_not_null()
                 & pl.col("market_date").is_not_null()
             )
