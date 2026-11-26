@@ -24,16 +24,13 @@ from .validation import (
 from .walkforward import summarize_walk_forward, walk_forward_threshold_report
 
 NY = ZoneInfo("America/New_York")
+QUOTE_VALUES = ("bid", "ask", "mid", "basis_bps")
+EDGE_VALUES = ("long_convergence_bps", "short_convergence_bps", "gross_convergence_edge_bps")
+MARKET_VALUES = (*QUOTE_VALUES, *EDGE_VALUES)
 REQUIRED_COLUMNS = {
     "observed_timestamp_ms",
     "symbol",
-    "bid",
-    "ask",
-    "mid",
-    "basis_bps",
-    "long_convergence_bps",
-    "short_convergence_bps",
-    "gross_convergence_edge_bps",
+    *MARKET_VALUES,
     "book_age_ms",
     "reference_receive_age_ms",
     "reference_lag_ms",
@@ -180,6 +177,10 @@ def _known_at_sample(frame: pl.DataFrame) -> pl.Expr:
     return (available <= observed).fill_null(False)
 
 
+def _finite_values(columns: tuple[str, ...]) -> pl.Expr:
+    return pl.all_horizontal(pl.col(columns).is_finite()).fill_null(False)
+
+
 def prepare_signals(
     frame: pl.DataFrame,
     *,
@@ -188,9 +189,15 @@ def prepare_signals(
 ) -> pl.DataFrame:
     """Validate, clean and enrich collected observations for research."""
     _require_columns(frame)
+    # CSV inference can give an entirely blank numeric column a string dtype.
+    schema = frame.schema
+    text_values = [name for name in MARKET_VALUES if schema[name] == pl.String]
+    if text_values:
+        frame = frame.with_columns(pl.col(text_values).cast(pl.Float64))
 
     cleaned = frame.filter(
         _known_at_sample(frame)
+        & _finite_values(MARKET_VALUES)
         & (pl.col("observed_timestamp_ms") > 0)
         & (pl.col("reference_lag_ms") >= 0)
         & (pl.col("book_age_ms") >= 0)
@@ -244,11 +251,15 @@ def forward_outcomes(
     future = signals.select(
         "symbol",
         "observed_timestamp_ms",
-        "bid",
-        "ask",
-        "mid",
-        "basis_bps",
+        *QUOTE_VALUES,
     )
+    # Direct callers can provide prepared rows without going through prepare_signals.
+    fields = (*QUOTE_VALUES, *(name for name in EDGE_VALUES if name in signals.columns))
+    schema = signals.schema
+    if not all(schema[name].is_numeric() for name in fields) or not signals.select(
+        _finite_values(fields).all()
+    ).item():
+        raise ValueError("Prepared signals require finite, non-null numeric quote and edge values")
     outcomes: list[pl.DataFrame] = []
 
     for horizon_s in horizons_s:
@@ -293,6 +304,10 @@ def forward_outcomes(
                 .then((pl.col("_future_bid") / pl.col("ask") - 1.0) * 10_000.0)
                 .otherwise((1.0 - pl.col("_future_ask") / pl.col("bid")) * 10_000.0)
                 .alias("forward_trade_return_bps"),
+            )
+            .with_columns(
+                pl.when(pl.col(name).is_finite()).then(pl.col(name)).otherwise(None).alias(name)
+                for name in ("forward_trade_return_bps", "forward_mid_return_bps", "basis_convergence_bps")
             )
             .drop(
                 "_target_timestamp_ms",
