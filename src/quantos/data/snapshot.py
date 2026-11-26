@@ -41,14 +41,16 @@ class SnapshotBuilder:
         values: dict[str, Any] = {}
         quality_reports: list[DataQualityReport] = []
         used_sources: list[str] = []
+        registrations = self.catalog.registered_sources(tuple(spec.source_id for spec in sources))
 
         for spec in sources:
-            source = self.catalog.get_source(spec.source_id)
-            if source is None:
+            registration = registrations.get(spec.source_id)
+            if registration is None:
                 quality_reports.append(
                     DataQualityReport.unavailable(spec.source_id, as_of, "unregistered data source")
                 )
                 continue
+            source = registration.source
 
             try:
                 rows = self.catalog.query_as_of(
@@ -59,6 +61,7 @@ class SnapshotBuilder:
                     instrument_id=instrument_id,
                     columns=(spec.timestamp_column, *spec.value_columns),
                     limit=1,
+                    registration=registration,
                 )
             except (SourceAvailabilityError, KeyError) as exc:
                 quality_reports.append(DataQualityReport.unavailable(spec.source_id, as_of, str(exc)))

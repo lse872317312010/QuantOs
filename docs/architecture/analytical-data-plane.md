@@ -81,6 +81,21 @@ It also stores canonical instruments.
 
 The registry is metadata only; DuckDB and Parquet remain the storage/query primitives.
 
+### Re-importing a paired bStocks capture
+
+`bstocks-register-data` reads the capture into one temporary DuckDB table, then writes both
+Parquet files in a staging directory. The completed files have names such as
+`book-<sha256>.parquet` and `reference-<sha256>.parquet`. Their absolute paths and the
+instrument registrations become visible together when one DuckDB transaction commits.
+Use the paths printed by the command or look them up by source ID.
+
+Snapshots and health reports read the source registrations for the entire report in one
+query. A concurrent re-import becomes visible to the next report. A failed import leaves
+the earlier registered pair readable, including after reopening the catalog. Retrying
+reuses files with the same bytes. The output directory retains earlier versions for audit
+and can also contain unreferenced files after an interrupted import. Existing fixed-name
+files and older catalogs remain readable at their recorded paths.
+
 ## Quality semantics
 
 `assess_data_quality` produces explicit states:

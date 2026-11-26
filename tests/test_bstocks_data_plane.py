@@ -1,6 +1,9 @@
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+import duckdb
+import pytest
+
 from bstocks_alpha.data_plane import (
     BOOK_SOURCE_ID,
     REFERENCE_SOURCE_ID,
@@ -83,3 +86,101 @@ def test_ambiguous_legacy_rest_capture_has_no_historical_availability(tmp_path):
     register_basis_csv(catalog, source, output_dir=tmp_path / "parquet")
     reports = catalog_health(catalog, as_of=datetime(2026, 1, 1, tzinfo=UTC))
     assert all(report.state is DataQualityState.UNAVAILABLE for report in reports)
+
+
+CAPTURE_MS = 1_791_072_000_000
+CAPTURE_HEADER = (
+    "observed_timestamp_ms,symbol,base_asset,inferred_underlying_ticker,bid,ask,mid,"
+    "spread_bps,reference_price,reference_timestamp_ms,reference_lag_ms,"
+    "external_calculation_id,book_age_ms,reference_receive_age_ms,book_update_id"
+)
+
+
+def write_capture(path, price, delay=0, header=CAPTURE_HEADER):
+    timestamp = CAPTURE_MS + delay
+    path.write_text(
+        f"{header}\n"
+        f"{timestamp},X,X,X,{price},{price + 2},{price + 1},1,{price + 1},"
+        f"{timestamp},0,1,0,0,7\n"
+    )
+
+
+def test_failed_second_export_preserves_both_previous_files(tmp_path):
+    path = tmp_path / "capture.csv"
+    catalog = AnalyticalCatalog(tmp_path / "catalog.duckdb")
+    output = tmp_path / "parquet"
+    write_capture(path, 10)
+    previous = register_basis_csv(catalog, path, output_dir=output)
+    before = [p.read_bytes() for p in previous]
+    write_capture(path, 20, header=CAPTURE_HEADER.replace("reference_price,", "missing_price,"))
+    with pytest.raises(duckdb.BinderException):
+        register_basis_csv(catalog, path, output_dir=output)
+    assert [p.read_bytes() for p in previous] == before
+    assert [catalog.source_parquet_path(s) for s in (BOOK_SOURCE_ID, REFERENCE_SOURCE_ID)] == [
+        str(p) for p in previous
+    ]
+
+
+def test_registry_failure_rolls_back_and_retry_reuses_verified_files(tmp_path, monkeypatch):
+    path = tmp_path / "capture.csv"
+    catalog = AnalyticalCatalog(tmp_path / "catalog.duckdb")
+    output = tmp_path / "parquet"
+    write_capture(path, 10)
+    previous = register_basis_csv(catalog, path, output_dir=output)
+    before = [p.read_bytes() for p in previous]
+    write_capture(path, 30, delay=1000)
+    register = catalog.register_source
+
+    def fail_second(source, **kwargs):
+        if source.source_id == REFERENCE_SOURCE_ID:
+            raise RuntimeError("injected registry failure")
+        register(source, **kwargs)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(catalog, "register_source", fail_second)
+        with pytest.raises(RuntimeError, match="injected"):
+            register_basis_csv(catalog, path, output_dir=output)
+    reopened = AnalyticalCatalog(tmp_path / "catalog.duckdb")
+    assert [reopened.source_parquet_path(s) for s in (BOOK_SOURCE_ID, REFERENCE_SOURCE_ID)] == [
+        str(p) for p in previous
+    ]
+    current = register_basis_csv(reopened, path, output_dir=output)
+    assert current != previous
+    assert register_basis_csv(reopened, path, output_dir=output) == current
+    assert [p.read_bytes() for p in previous] == before
+
+
+@pytest.mark.parametrize("report", ["snapshot", "health"])
+def test_import_during_multi_source_read_is_visible_only_on_next_report(tmp_path, monkeypatch, report):
+    path = tmp_path / "capture.csv"
+    catalog = AnalyticalCatalog(tmp_path / "catalog.duckdb")
+    output = tmp_path / "parquet"
+    write_capture(path, 10)
+    register_basis_csv(catalog, path, output_dir=output)
+    write_capture(path, 20, delay=1000)
+    query = catalog.query_as_of
+    calls = 0
+
+    def interleaved_query(*args, **kwargs):
+        nonlocal calls
+        rows = query(*args, **kwargs)
+        calls += 1
+        if calls == 1:
+            register_basis_csv(catalog, path, output_dir=output)
+        return rows
+
+    monkeypatch.setattr(catalog, "query_as_of", interleaved_query)
+    cutoff = datetime.fromtimestamp(CAPTURE_MS / 1000 + 3, UTC)
+    if report == "snapshot":
+        specs = (
+            SnapshotSourceQuery(BOOK_SOURCE_ID, "ts_event", "instrument_id", ("bid",)),
+            SnapshotSourceQuery(REFERENCE_SOURCE_ID, "ts_event", "instrument_id", ("reference_price",)),
+        )
+        builder = SnapshotBuilder(catalog)
+        first = builder.build("X.BINANCE", as_of=cutoff, sources=specs)
+        second = builder.build("X.BINANCE", as_of=cutoff, sources=specs)
+        assert first.values == {"bid": 10, "reference_price": 11}
+        assert second.values == {"bid": 20, "reference_price": 21}
+    else:
+        assert [row.freshness_s for row in catalog_health(catalog, as_of=cutoff)] == [3, 3]
+        assert [row.freshness_s for row in catalog_health(catalog, as_of=cutoff)] == [2, 2]
