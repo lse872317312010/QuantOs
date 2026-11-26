@@ -73,8 +73,12 @@ def test_quote_age_uses_elapsed_seconds_in_repeated_hour() -> None:
     report = assess_data_quality(source, as_of=later, last_event_at=first, observed_count=1)
     assert report.freshness_s == 1800
     assert report.state is DataQualityState.STALE
-    with pytest.raises(ValueError, match="newer"):
-        assess_data_quality(source, as_of=first, last_event_at=later, observed_count=1)
+    future = assess_data_quality(source, as_of=first, last_event_at=later, observed_count=1)
+    assert future.state is DataQualityState.UNAVAILABLE
+    assert future.last_event_at is None
+    assert future.freshness_s is None
+    assert future.completeness is None
+    assert "after as_of" in future.issues[0]
 
 
 def test_instrument_identity_keeps_raw_symbol_separate() -> None:
