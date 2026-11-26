@@ -6,7 +6,7 @@ import json
 import re
 from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +15,10 @@ import duckdb
 from .models import DataSource, Instrument
 
 _IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+class SourceAvailabilityError(ValueError):
+    """The source lacks a verifiable clock for point-in-time queries."""
 
 
 class AnalyticalCatalog:
@@ -32,6 +36,7 @@ class AnalyticalCatalog:
     def connection(self) -> Iterator[duckdb.DuckDBPyConnection]:
         con = duckdb.connect(self.path)
         try:
+            con.execute("SET TimeZone = 'UTC'")
             yield con
         finally:
             con.close()
@@ -192,9 +197,10 @@ class AnalyticalCatalog:
         columns: tuple[str, ...] | None = None,
         limit: int = 1,
     ) -> list[dict[str, Any]]:
-        """Return latest rows at or before an as-of timestamp from registered Parquet data."""
-        if as_of.tzinfo is None:
+        """Return the latest event versions already available by the requested instant."""
+        if as_of.utcoffset() is None:
             raise ValueError("as_of must be timezone-aware")
+        as_of = as_of.astimezone(UTC)
         if limit < 1:
             raise ValueError("limit must be positive")
         self._require_identifier(timestamp_column)
@@ -209,30 +215,50 @@ class AnalyticalCatalog:
                 self._require_identifier(column)
             projection = ", ".join(columns)
 
-        parquet_path = self.source_parquet_path(source_id)
-        if parquet_path is None:
-            raise KeyError(f"source has no registered parquet dataset: {source_id}")
-
-        where = [f"{timestamp_column} <= ?"]
-        params: list[Any] = [parquet_path, as_of]
-        if instrument_id is not None:
-            where.append(f"{instrument_column} = ?")
-            params.append(instrument_id)
-        params.append(limit)
-
-        query = f"""
-            SELECT {projection}
-            FROM read_parquet(?)
-            WHERE {" AND ".join(where)}
-            ORDER BY {timestamp_column} DESC
-            LIMIT ?
-        """
         with self.connection() as con:
+            entry = con.execute(
+                "SELECT parquet_path, metadata_json FROM quantos_sources WHERE source_id = ?",
+                [source_id],
+            ).fetchone()
+            if entry is None or entry[0] is None:
+                raise KeyError(f"source has no registered parquet dataset: {source_id}")
+            parquet_path, metadata = entry[0], json.loads(entry[1])
+            availability = metadata.get("availability_column", "ts_received")
+            sequence = metadata.get("sequence_column")
+            self._require_identifier(availability)
+            try:
+                fields = con.execute("DESCRIBE SELECT * FROM read_parquet(?)", [parquet_path]).fetchall()
+            except (duckdb.IOException, duckdb.InvalidInputException) as exc:
+                raise SourceAvailabilityError(f"{source_id} cannot open its Parquet dataset") from exc
+            schema = {row[0]: row[1] for row in fields}
+            for clock in (timestamp_column, availability):
+                if schema.get(clock) != "TIMESTAMP WITH TIME ZONE":
+                    raise SourceAvailabilityError(
+                        f"{source_id} needs a timezone-aware {clock} column for point-in-time reads"
+                    )
+            order = [f"{timestamp_column} DESC", f"{availability} DESC"]
+            if sequence is not None:
+                self._require_identifier(sequence)
+                if sequence not in schema:
+                    raise SourceAvailabilityError(f"{source_id} is missing revision sequence {sequence}")
+                order.append(f"{sequence} DESC NULLS LAST")
+
+            where = [f"{timestamp_column} <= ?", f"{availability} <= ?"]
+            params: list[Any] = [parquet_path, as_of, as_of]
+            if instrument_id is not None:
+                where.append(f"{instrument_column} = ?")
+                params.append(instrument_id)
+            params.append(limit)
+            query = f"""
+                SELECT {projection} FROM read_parquet(?)
+                WHERE {" AND ".join(where)}
+                ORDER BY {", ".join(order)} LIMIT ?
+            """
             result = con.execute(query, params)
             names = [description[0] for description in result.description]
             return [dict(zip(names, row, strict=True)) for row in result.fetchall()]
 
     @staticmethod
     def _require_identifier(value: str) -> None:
-        if not _IDENTIFIER.fullmatch(value):
+        if not isinstance(value, str) or not _IDENTIFIER.fullmatch(value):
             raise ValueError(f"invalid column identifier: {value}")

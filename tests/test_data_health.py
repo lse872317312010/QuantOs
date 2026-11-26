@@ -29,7 +29,7 @@ def test_catalog_health_reports_latest_registered_parquet_event(tmp_path: Path) 
             dataset="example",
             source_type="parquet",
             expected_interval_s=10.0,
-            metadata={"timestamp_column": "ts_event"},
+            metadata={"timestamp_column": "ts_event", "availability_column": "ts_event"},
         ),
         parquet_path=parquet,
     )

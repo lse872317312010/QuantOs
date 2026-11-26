@@ -13,7 +13,7 @@ def make_parquet(path: Path) -> None:
         con.execute(
             """
             COPY (
-                SELECT * FROM (
+                SELECT *, ts_event AS ts_received FROM (
                     VALUES
                         ('SPYBUSDT.BINANCE', TIMESTAMPTZ '2026-10-04 00:00:00+00', 100.0),
                         ('SPYBUSDT.BINANCE', TIMESTAMPTZ '2026-10-04 00:00:02+00', 101.0),
