@@ -49,6 +49,13 @@ P0–P6 是验收门槛而不是工期承诺。全部未验收。可并行开展
 
 **退出证据：** 目标提交的相关回归测试、全套适用 CI、审查关闭或人工确认的不适用记录；明确历史结果影响。P0 未通过不得将 #16 或受影响旧结果作为正式预测/评分依据。
 
+#### 2026-11-27 验证栈收束
+
+- [#31 交易日 UTC 边界复验](https://github.com/lse872317312010/QuantOs/pull/31) 已合入验证分支 `verify/p0-integration`（合并提交 [`6807cc1`](https://github.com/lse872317312010/QuantOs/commit/6807cc1365a18d4b6bb2f3b7610951f715114693)）。精确 head CI [45586980922](https://github.com/lse872317312010/QuantOs/actions/runs/45586980922) 与 [45600197676](https://github.com/lse872317312010/QuantOs/actions/runs/45600197676) 通过，Codex 审查无发现；合并后的推送 CI [45960664541](https://github.com/lse872317312010/QuantOs/actions/runs/45960664541) 通过。该 PR 的目标是验证分支，不是 `main`。
+- [#25](https://github.com/lse872317312010/QuantOs/pull/25)、[#33](https://github.com/lse872317312010/QuantOs/pull/33)、[#35](https://github.com/lse872317312010/QuantOs/pull/35)、[#38](https://github.com/lse872317312010/QuantOs/pull/38) 已关闭归档。四者均基于 #17/#42 之前的旧基线，正文分别标注 “DO NOT MERGE” 或“不直接合并”；其底层修复已分别经 #16、#18–#22、#24（随 #26）、#26–#30、#32、#34、#36–#37、#40、#42 进入主线，证据见[研究与风险主线记录](#p0-closeout)与[主线记录](#p0-mainline)。
+- 归档保留提交、评论、CI 与分支；本次收束未向 `main` 合入代码或实验产物，记录提交时 `main` 为 [`09419f8`](https://github.com/lse872317312010/QuantOs/commit/09419f80195f3bdf53ec5001d4cf76acddde992c)。
+- 验证栈独有的时序回放测试与夹具（归档分支中的 `tests/test_p0_time_replay.py`、`tests/fixtures/p0_synthetic_captures.csv`、`tests/fixtures/p0_xnys_boundaries.csv` 等）未进入 `main`。若要纳入主线，需基于当前 `main` 另开正常 PR、通过 CI 与审查，不能直接合并归档草稿。
+
 <a id="p0-closeout"></a>
 
 #### 2026-11-26 研究与风险主线合并
@@ -73,7 +80,7 @@ P0–P6 是验收门槛而不是工期承诺。全部未验收。可并行开展
 
 [#42](https://github.com/lse872317312010/QuantOs/pull/42) 源提交 `a3eb7c7` 于北京时间 18:07 获得所有者同意，18:09 合入主线。[独立候选](https://github.com/lse872317312010/QuantOs/actions/runs/45792722326/job/139815528064) 和[实际主线 CI](https://github.com/lse872317312010/QuantOs/actions/runs/45798738334/job/139836080109) 均通过 221 项测试，Git 文件树一致。同一份四行合成 CSV 在旧主线 `6d20ccd` 上产生 +∞ bp，在合并后的分析器中保留第 1、4 行。入场卖价为 101，退出买价为 103，比目标晚 100 ms，毛收益为 +198.02 bp。
 
-已核查 `c6c57a5` 的 110 个受控文件、常见产物目录、GitHub Releases 与 15 次相关 Actions 运行的附件。上述位置未发现真实旧行情或研究结果。仓库外是否留存仍待所有者确认。可在私人审阅站的 #38 归档栏记录结论。
+已核查 `c6c57a5` 的 110 个受控文件、常见产物目录、GitHub Releases 与 15 次相关 Actions 运行的附件。上述位置未发现真实旧行情或研究结果。仓库外是否留存仍待所有者确认。原 #38 验证草稿已于 2026-11-27 关闭归档，相关评论与 CI 记录仍可查阅。
 
 <a id="p0-mainline"></a>
 
