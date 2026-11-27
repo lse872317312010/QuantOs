@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+from sys import platform
 
 import polars as pl
 
@@ -57,7 +58,12 @@ def _measure(frame: pl.DataFrame) -> dict:
 
 
 def _version(stat: os.stat_result) -> tuple[int, ...]:
-    return stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns
+    version = (stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns)
+    # On Windows, path stat can report creation time as ctime while fstat
+    # reports metadata change time for the same file (CPython #157671).
+    if platform == "win32":
+        return version
+    return (*version, stat.st_ctime_ns)
 
 
 def audit_directory(directory: Path) -> dict:
