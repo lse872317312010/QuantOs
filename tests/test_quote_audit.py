@@ -1,11 +1,15 @@
 import hashlib
 import json
+import os
 import subprocess
 import sys
+from pathlib import Path
+from types import SimpleNamespace
 
 import polars as pl
 import pytest
 
+from bstocks_alpha import quote_audit
 from bstocks_alpha.quote_audit import FORMAT, audit_directory
 
 
@@ -64,20 +68,81 @@ def test_incomplete_or_wrong_artifact_never_claims_zero_collisions(tmp_path, tra
     assert len(result["sha256"]) == 64 and "duplicate_keys" not in result
 
 
+def test_windows_path_and_handle_ctime_can_differ_for_unchanged_file(tmp_path, monkeypatch):
+    path = tmp_path / "signals.parquet"
+    quotes([("A", 1)], [99]).write_parquet(path)
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    with path.open("rb") as stream:
+        opened = os.fstat(stream.fileno())
+    original_stat = Path.stat
+
+    def stat_with_creation_time(self, *args, **kwargs):
+        if self != path:
+            return original_stat(self, *args, **kwargs)
+        return SimpleNamespace(
+            st_dev=opened.st_dev,
+            st_ino=opened.st_ino,
+            st_size=opened.st_size,
+            st_mtime_ns=opened.st_mtime_ns,
+            st_ctime_ns=opened.st_ctime_ns - 100,
+        )
+
+    monkeypatch.setattr(quote_audit, "platform", "win32", raising=False)
+    monkeypatch.setattr(Path, "stat", stat_with_creation_time)
+    result = audit_directory(tmp_path)
+    assert result["status"] == "unique_keys"
+    assert result["sha256"] == digest
+
+
 def test_replacement_during_read_is_inconclusive(tmp_path, monkeypatch):
     frame = quotes([("A", 1)], [99])
     path = tmp_path / "signals.parquet"
     frame.write_parquet(path)
+    replacement = tmp_path / "replacement.parquet"
+    replacement.write_bytes(path.read_bytes())
+    initial = path.stat()
+    os.utime(replacement, ns=(initial.st_atime_ns, initial.st_mtime_ns))
+
+    if sys.platform == "win32":
+        # Windows locks the opened name. Open another link to the same file
+        # so the audit keeps its original descriptor across the replacement.
+        alias = tmp_path / "open-link.parquet"
+        alias.hardlink_to(path)
+        original_open = Path.open
+
+        def open_through_link(self, *args, **kwargs):
+            return original_open(alias if self == path else self, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "open", open_through_link)
+
     original = pl.read_parquet
 
     def replace_after_read(*args, **kwargs):
         result = original(*args, **kwargs)
-        replacement = tmp_path / "replacement.parquet"
-        frame.write_parquet(replacement)
         replacement.replace(path)
         return result
 
     monkeypatch.setattr(pl, "read_parquet", replace_after_read)
+    assert audit_directory(tmp_path) == {
+        "status": "unverified", "sha256": None, "reason": "changed_during_read",
+    }
+    assert not replacement.exists()
+
+
+def test_in_place_modification_during_read_is_inconclusive(tmp_path, monkeypatch):
+    path = tmp_path / "signals.parquet"
+    quotes([("A", 1)], [99]).write_parquet(path)
+    initial = path.stat()
+    original = pl.read_parquet
+
+    def modify_after_read(*args, **kwargs):
+        result = original(*args, **kwargs)
+        with path.open("r+b") as stream:
+            stream.write(b"X")
+        os.utime(path, ns=(initial.st_atime_ns, initial.st_mtime_ns + 2_000_000_000))
+        return result
+
+    monkeypatch.setattr(pl, "read_parquet", modify_after_read)
     assert audit_directory(tmp_path) == {
         "status": "unverified", "sha256": None, "reason": "changed_during_read",
     }
