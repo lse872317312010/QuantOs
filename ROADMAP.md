@@ -53,8 +53,9 @@ P0–P6 是验收门槛而不是工期承诺。全部未验收。可并行开展
 
 - [#31 交易日 UTC 边界复验](https://github.com/lse872317312010/QuantOs/pull/31) 已合入验证分支 `verify/p0-integration`（合并提交 [`6807cc1`](https://github.com/lse872317312010/QuantOs/commit/6807cc1365a18d4b6bb2f3b7610951f715114693)）。精确 head CI [45586980922](https://github.com/lse872317312010/QuantOs/actions/runs/45586980922) 与 [45600197676](https://github.com/lse872317312010/QuantOs/actions/runs/45600197676) 通过，Codex 审查无发现；合并后的推送 CI [45960664541](https://github.com/lse872317312010/QuantOs/actions/runs/45960664541) 通过。该 PR 的目标是验证分支，不是 `main`。
 - [#25](https://github.com/lse872317312010/QuantOs/pull/25)、[#33](https://github.com/lse872317312010/QuantOs/pull/33)、[#35](https://github.com/lse872317312010/QuantOs/pull/35)、[#38](https://github.com/lse872317312010/QuantOs/pull/38) 已关闭归档。四者均基于 #17/#42 之前的旧基线，正文分别标注 “DO NOT MERGE” 或“不直接合并”；其底层修复已分别经 #16、#18–#22、#24（随 #26）、#26–#30、#32、#34、#36–#37、#40、#42 进入主线，证据见[研究与风险主线记录](#p0-closeout)与[主线记录](#p0-mainline)。
-- 归档保留提交、评论、CI 与分支；本次收束未向 `main` 合入代码或实验产物，记录提交时 `main` 为 [`09419f8`](https://github.com/lse872317312010/QuantOs/commit/09419f80195f3bdf53ec5001d4cf76acddde992c)。
-- 验证栈独有的时序回放测试与夹具（归档分支中的 `tests/test_p0_time_replay.py`、`tests/fixtures/p0_synthetic_captures.csv`、`tests/fixtures/p0_xnys_boundaries.csv` 等）未进入 `main`。若要纳入主线，需基于当前 `main` 另开正常 PR、通过 CI 与审查，不能直接合并归档草稿。
+- 归档保留提交、评论、CI 与分支；本次收束操作本身未向 `main` 合入生产代码或实验产物，记录提交时 `main` 为 [`09419f8`](https://github.com/lse872317312010/QuantOs/commit/09419f80195f3bdf53ec5001d4cf76acddde992c)。
+- [#44 移植归档时序回放](https://github.com/lse872317312010/QuantOs/pull/44) 已基于当时 `main`（`33011d6`）将归档中仍独有的三组时序回放测试和两份合成夹具移入 `tests/`，未改生产代码；GitHub CI 为 `233 passed, 81 warnings`，Codex 审查无发现，合并提交 [`ef3f3f5`](https://github.com/lse872317312010/QuantOs/commit/ef3f3f534f4b13326e3ac97697a8ea61863882f8)，合并后主线 CI [45970076126](https://github.com/lse872317312010/QuantOs/actions/runs/45970076126) 同样通过 `233 passed, 81 warnings`。
+- 归档分支的旧生产代码与旧基线不进入 `main`；#44 只移植测试与合成夹具，原归档仍保留。
 
 <a id="p0-closeout"></a>
 
@@ -224,7 +225,7 @@ P0–P6 是验收门槛而不是工期承诺。全部未验收。可并行开展
 | --- | --- | --- | --- |
 | 1 | 所有者审核并采纳宪法 | #17，C15 | 已合入主线并生效 |
 | 2 | 修复预测登记的 UTC/DST 时序并采用交易日收盘期限 | #16、#28 的合并提交和主线 CI | 两项均已合并，见[主线记录](#p0-mainline) |
-| 3 | 审计既有研究、风险与快照 | [行情主线记录](#p0-mainline)、[研究与风险主线记录](#p0-closeout) | 工程修复已全部合入，主线 221 项通过。单独复验时序与故障 14 项通过。历史归档范围待确认。 |
+| 3 | 审计既有研究、风险与快照 | [行情主线记录](#p0-mainline)、[研究与风险主线记录](#p0-closeout) | 工程修复已全部合入，主线 233 项通过（含 #44 移植的时序回放覆盖）。单独复验时序与故障 14 项通过。历史归档范围待确认。 |
 | 4 | 接入首个获准资料并建立来源版本记录 | P0；P1；[Issue #23](https://github.com/lse872317312010/QuantOs/issues/23) | FOMC 候选来源预研，未取得实际配对行情；未验收 |
 | 5 | 知识检索、假设登记及持久化 | P1→P2→P3 | 未验收 |
 | 6 | 可复现实验及真实预测到期复盘 | P4→P5 | 未验收 |
